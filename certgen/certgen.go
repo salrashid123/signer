@@ -12,7 +12,8 @@ import (
 	"os"
 	"time"
 
-	salkms "github.com/salrashid123/misc/kms"
+	salkms "github.com/salrashid123/signer/kms"
+	//saltpm "github.com/salrashid123/signer/tpm"
 )
 
 const ()
@@ -21,7 +22,7 @@ var ()
 
 func main() {
 
-	// c, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+	// r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 	// 	TpmDevice: "/dev/tpm0",
 	// 	TpmHandle: 0x81010002,
 	// })
