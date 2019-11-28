@@ -7,18 +7,47 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"flag"
 	"log"
 	"math/big"
 	"os"
 	"time"
 
-	salkms "github.com/salrashid123/signer/kms"
+	salpem "github.com/salrashid123/signer/pem"
+	//salkms "github.com/salrashid123/signer/kms"
 	//saltpm "github.com/salrashid123/signer/tpm"
 )
 
+/*
+
+Utility function that will generate an x509 certificate using private keys embedded in either a TPM or KMS system.
+
+Edit the Subject/CN values as needed as well as KeyUsage or with defaults
+
+go run certgen.go -cn server.domain.com
+
+
+Note: x509 certificates associated with a google cloud service account have the following specifications:
+
+Issuer: CN = YOURServiceAccountName@PROJECT_ID.iam.gserviceaccount.com
+Subject: CN = YOURServiceAccountName@PROJECT_ID.iam.gserviceaccount.com
+X509v3 extensions:
+    X509v3 Key Usage: critical
+        Digital Signature
+    X509v3 Extended Key Usage: critical
+		TLS Web Client Authentication
+
+*/
 const ()
 
-var ()
+var (
+	cfg = &certGenConfig{}
+)
+
+type certGenConfig struct {
+	flCN  string
+	flSNI string
+}
 
 func main() {
 
@@ -27,12 +56,17 @@ func main() {
 	// 	TpmHandle: 0x81010002,
 	// })
 
-	r, err := salkms.NewKMSCrypto(&salkms.KMS{
-		ProjectId:  "mineral-minutia-820",
-		LocationId: "us-central1",
-		KeyRing:    "mykeyring",
-		Key:        "rsign",
-		KeyVersion: "1",
+	// r, err := salkms.NewKMSCrypto(&salkms.KMS{
+	// 	ProjectId:  "mineral-minutia-820",
+	// 	LocationId: "us-central1",
+	// 	KeyRing:    "mykeyring",
+	// 	Key:        "rsign",
+	// 	KeyVersion: "1",
+	// })
+
+	r, err := salpem.NewPEMCrypto(&salpem.PEM{
+		PublicPEMFile:  "server.pem",
+		PrivatePEMFile: "server.key",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -43,6 +77,17 @@ func main() {
 }
 
 func createSelfSignedPubCert(t crypto.Signer) error {
+
+	flag.StringVar(&cfg.flCN, "cn", "", "(required) CN= value for the certificate")
+	flag.Parse()
+
+	argError := func(s string, v ...interface{}) {
+		//flag.PrintDefaults()
+		log.Fatalf("Invalid Argument error: "+s, v...)
+	}
+	if cfg.flCN == "" {
+		argError("-cn not specified")
+	}
 
 	log.Printf("Creating public x509")
 
@@ -60,12 +105,16 @@ func createSelfSignedPubCert(t crypto.Signer) error {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{"Acme Co"},
-			CommonName:   "server.domain.com",
+			Organization:       []string{"Acme Co"},
+			OrganizationalUnit: []string{"Enterprise"},
+			Locality:           []string{"Mountain View"},
+			Province:           []string{"California"},
+			Country:            []string{"US"},
+			CommonName:         cfg.flCN,
 		},
 		NotBefore:             notBefore,
 		NotAfter:              notAfter,
-		DNSNames:              []string{"server.domain.com"},
+		DNSNames:              []string{cfg.flCN},
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
