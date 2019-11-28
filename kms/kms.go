@@ -5,7 +5,6 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/pem"
 	"io"
 	"log"
@@ -15,8 +14,8 @@ import (
 	"fmt"
 	"io/ioutil"
 
-	"golang.org/x/oauth2/google"
-	cloudkms "google.golang.org/api/cloudkms/v1"
+	cloudkms "cloud.google.com/go/kms/apiv1"
+	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
 
 const ()
@@ -59,16 +58,12 @@ func (t KMS) Public() crypto.PublicKey {
 		ctx := context.Background()
 		parentName := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%s", t.ProjectId, t.LocationId, t.KeyRing, t.Key, t.KeyVersion)
 
-		kmsClient, err := google.DefaultClient(ctx, cloudkms.CloudPlatformScope)
-		if err != nil {
-			log.Fatal(err)
-		}
-		kmsService, err := cloudkms.New(kmsClient)
+		kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		dresp, err := kmsService.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.GetPublicKey(parentName).Do()
+		dresp, err := kmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: parentName})
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -135,31 +130,22 @@ func (t KMS) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	ctx := context.Background()
 	parentName := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%s", t.ProjectId, t.LocationId, t.KeyRing, t.Key, t.KeyVersion)
 
-	kmsClient, err := google.DefaultClient(ctx, cloudkms.CloudPlatformScope)
-	if err != nil {
-		log.Fatal(err)
-	}
-	kmsService, err := cloudkms.New(kmsClient)
+	kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	s := base64.StdEncoding.EncodeToString(digest)
-	drq := &cloudkms.AsymmetricSignRequest{
-		Digest: &cloudkms.Digest{
-			Sha256: s,
+	req := &kmspb.AsymmetricSignRequest{
+		Name: parentName,
+		Digest: &kmspb.Digest{
+			Digest: &kmspb.Digest_Sha256{
+				Sha256: digest,
+			},
 		},
 	}
-	dresp, err := kmsService.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.AsymmetricSign(parentName, drq).Do()
-	if err != nil {
-		log.Fatal(err)
-	}
+	dresp, err := kmsClient.AsymmetricSign(ctx, req)
 
-	signedResp, err := base64.StdEncoding.DecodeString(dresp.Signature)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	return []byte(signedResp), nil
+	return dresp.Signature, nil
 
 }
 
@@ -170,28 +156,18 @@ func (t KMS) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 	ctx := context.Background()
 	parentName := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%s", t.ProjectId, t.LocationId, t.KeyRing, t.Key, t.KeyVersion)
 
-	kmsClient, err := google.DefaultClient(ctx, cloudkms.CloudPlatformScope)
-	if err != nil {
-		log.Fatal(err)
-	}
-	kmsService, err := cloudkms.New(kmsClient)
+	kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	s := base64.StdEncoding.EncodeToString(msg)
-	drq := &cloudkms.AsymmetricDecryptRequest{
-		Ciphertext: s,
-	}
-	dresp, err := kmsService.Projects.Locations.KeyRings.CryptoKeys.CryptoKeyVersions.AsymmetricDecrypt(parentName, drq).Do()
+	dresp, err := kmsClient.AsymmetricDecrypt(ctx, &kmspb.AsymmetricDecryptRequest{
+		Name:       parentName,
+		Ciphertext: msg,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	plainText, err := base64.StdEncoding.DecodeString(dresp.Plaintext)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	return []byte(plainText), nil
+	return dresp.Plaintext, nil
 }
