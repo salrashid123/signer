@@ -37,6 +37,14 @@ X509v3 extensions:
     X509v3 Extended Key Usage: critical
 		TLS Web Client Authentication
 
+
+Note: if you use openssl TPM2-TSS engine, you can generate the key on the TPM and use openssl to generate the x509 cert
+
+$ tpm2tss-genkey -a rsa private.tss
+$ openssl req -new -x509 -engine tpm2tss -key private.tss -keyform engine -out public.crt  -subj "/CN=example.com/"
+$ openssl x509 -pubkey -noout -in public.crt  > public.pem
+$ openssl x509 -in public.crt -text -noout
+
 */
 const ()
 
