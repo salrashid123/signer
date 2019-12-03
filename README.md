@@ -4,9 +4,11 @@ for private keys based on
 
 * Google Cloud KMS 
 * Trusted Platform Module
+* HashiCorp Vault
 * PEM key files
 
 - `kms/`:  Sample that implements `crypto.Signer` and `crypto.Decrypter` using Google Cloud KMS
+- `vault/`: Sample that implements `crypto.Signer` and `crypto.Decrypter` using the [PKI Secret Engine for HashiCorp Vault](https://www.vaultproject.io/docs/secrets/pki/index.html)
 - `tpm/`:  Sample that implements `crypto.Signer` and `crypto.Decrypter` using `go-tpm` library for Trusted Platform Module
 ```
     tpm2_createprimary -C e -g sha256 -G rsa -c primary.ctx
@@ -26,6 +28,7 @@ import (
 	salkms "github.com/salrashid123/signer/kms"
 	saltpm "github.com/salrashid123/signer/tpm"
 	salpem "github.com/salrashid123/signer/pem"
+	salvault "github.com/salrashid123/signer/vault"
 )
 
 	c, err := saltpm.NewTPMCrypto(&saltpm.TPM{
@@ -41,6 +44,16 @@ import (
 		KeyVersion: "1",
 	})
 
+	r, err := salvault.NewVaultCrypto(&salvault.Vault{
+		CertCN:      "server.domain.com",
+		VaultToken:  "s.IumzeFZVsWqYcJ2IjlGaqZby",
+		VaultPath:   "pki/issue/domain-dot-com",
+		VaultCAcert: "CA_crt.pem",
+		VaultAddr:   "https://vault.domain.com:8200",
+		// ClientCAs:   clientCaCertPool,  // specified implicitly with vault CA
+		ClientAuth:  tls.RequireAndVerifyClientCert,
+	})	
+
 	caCert, err := ioutil.ReadFile("CA_crt.pem")
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
@@ -50,7 +63,6 @@ import (
 	clientCaCertPool.AppendCertsFromPEM(clientCaCert)
 
 	r, err := sal.NewPEMCrypto(&sal.PEM{
-
 		PublicCertFile: "server.crt",
 		RootCAs:        caCertPool,
 		PublicPEMFile:  "server.pem",
