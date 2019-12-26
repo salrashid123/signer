@@ -63,9 +63,9 @@ import (
 	clientCaCertPool.AppendCertsFromPEM(clientCaCert)
 
 	r, err := sal.NewPEMCrypto(&sal.PEM{
-		PublicCertFile: "server.crt",
+		PublicCertFile: "server.crt",  // TLS requres x509
 		RootCAs:        caCertPool,
-		PublicPEMFile:  "server.pem",
+		//PublicPEMFile:  "server.pem",  // not required 
 		PrivatePEMFile: "server.key",
 		ClientCAs:      clientCaCertPool,
 		ClientAuth:     tls.RequireAndVerifyClientCert,

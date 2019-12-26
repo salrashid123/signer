@@ -52,19 +52,37 @@ func NewPEMCrypto(conf *PEM) (PEM, error) {
 }
 
 func (t PEM) Public() crypto.PublicKey {
+
 	if publicKey == nil {
-		publicPEM, err := ioutil.ReadFile(publicKeyFile)
+		pubPEM, err := ioutil.ReadFile(t.PublicCertFile)
 		if err != nil {
 			log.Fatalf("Unable to read keys %v", err)
 		}
-		pubKeyBlock, _ := pem.Decode((publicPEM))
-
-		pub, err := x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
+		block, _ := pem.Decode([]byte(pubPEM))
+		if block == nil {
+			log.Fatalf("failed to parse PEM block containing the public key")
+		}
+		pub, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			log.Fatalf("failed to parse public key: " + err.Error())
 		}
-		publicKey = pub.(*rsa.PublicKey)
+
+		publicKey = pub.PublicKey
 	}
+
+	// if publicKey == nil {
+	// 	publicPEM, err := ioutil.ReadFile(publicKeyFile)
+	// 	if err != nil {
+	// 		log.Fatalf("Unable to read keys %v", err)
+	// 	}
+	// 	pubKeyBlock, _ := pem.Decode((publicPEM))
+
+	// 	pub, err := x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
+	// 	if err != nil {
+	// 		log.Fatalf("failed to parse public key: " + err.Error())
+	// 	}
+	// 	publicKey = pub.(*rsa.PublicKey)
+	// }
 
 	return publicKey
 }
