@@ -30,12 +30,9 @@ type PEM struct {
 	crypto.Signer
 	crypto.Decrypter
 
-	PublicCertFile string
-	Certificates   []tls.Certificate
-	RootCAs        *x509.CertPool
-	ClientCAs      *x509.CertPool
-	ClientAuth     tls.ClientAuthType
+	ExtTLSConfig *tls.Config
 
+	PublicCertFile string
 	PublicPEMFile  string
 	PrivatePEMFile string
 
@@ -48,41 +45,54 @@ type PEM struct {
 func NewPEMCrypto(conf *PEM) (PEM, error) {
 	publicKeyFile = conf.PublicPEMFile
 	privateKeyFile = conf.PrivatePEMFile
+
+	if conf.ExtTLSConfig != nil {
+		if len(conf.ExtTLSConfig.Certificates) > 0 {
+			return PEM{}, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
+		}
+
+		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
+			return PEM{}, fmt.Errorf("CipherSuites value in ExtTLSConfig Ignored")
+		}
+	}
 	return *conf, nil
 }
 
 func (t PEM) Public() crypto.PublicKey {
 
-	if publicKey == nil {
-		pubPEM, err := ioutil.ReadFile(t.PublicCertFile)
-		if err != nil {
-			log.Fatalf("Unable to read keys %v", err)
-		}
-		block, _ := pem.Decode([]byte(pubPEM))
-		if block == nil {
-			log.Fatalf("failed to parse PEM block containing the public key")
-		}
-		pub, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			log.Fatalf("failed to parse public key: " + err.Error())
-		}
+	if t.PublicCertFile != "" {
+		if publicKey == nil {
+			pubPEM, err := ioutil.ReadFile(t.PublicCertFile)
+			if err != nil {
+				log.Fatalf("Unable to read keys %v", err)
+			}
+			block, _ := pem.Decode([]byte(pubPEM))
+			if block == nil {
+				log.Fatalf("failed to parse PEM block containing the public key")
+			}
+			pub, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				log.Fatalf("failed to parse public key: " + err.Error())
+			}
 
-		publicKey = pub.PublicKey
+			publicKey = pub.PublicKey
+		}
+	} else {
+
+		if publicKey == nil {
+			publicPEM, err := ioutil.ReadFile(publicKeyFile)
+			if err != nil {
+				log.Fatalf("Unable to read keys %v", err)
+			}
+			pubKeyBlock, _ := pem.Decode((publicPEM))
+
+			pub, err := x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
+			if err != nil {
+				log.Fatalf("failed to parse public key: " + err.Error())
+			}
+			publicKey = pub.(*rsa.PublicKey)
+		}
 	}
-
-	// if publicKey == nil {
-	// 	publicPEM, err := ioutil.ReadFile(publicKeyFile)
-	// 	if err != nil {
-	// 		log.Fatalf("Unable to read keys %v", err)
-	// 	}
-	// 	pubKeyBlock, _ := pem.Decode((publicPEM))
-
-	// 	pub, err := x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
-	// 	if err != nil {
-	// 		log.Fatalf("failed to parse public key: " + err.Error())
-	// 	}
-	// 	publicKey = pub.(*rsa.PublicKey)
-	// }
 
 	return publicKey
 }
@@ -167,9 +177,10 @@ func (t PEM) TLSConfig() *tls.Config {
 
 	return &tls.Config{
 		Certificates: []tls.Certificate{t.TLSCertificate()},
-		RootCAs:      t.RootCAs,
-		ClientCAs:    t.ClientCAs,
-		ClientAuth:   t.ClientAuth,
+		RootCAs:      t.ExtTLSConfig.RootCAs,
+		ClientCAs:    t.ExtTLSConfig.ClientCAs,
+		ClientAuth:   t.ExtTLSConfig.ClientAuth,
+		ServerName:   t.ExtTLSConfig.ServerName,
 
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,

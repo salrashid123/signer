@@ -35,10 +35,8 @@ var (
 type Vault struct {
 	crypto.Signer
 	crypto.Decrypter
-	Certificates []tls.Certificate
-	RootCAs      *x509.CertPool
-	ClientCAs    *x509.CertPool
-	ClientAuth   tls.ClientAuthType
+
+	ExtTLSConfig *tls.Config
 
 	CertCN      string
 	VaultToken  string
@@ -50,9 +48,6 @@ type Vault struct {
 
 	refreshMutex sync.Mutex
 }
-
-// Just to test crypto.Singer, crypto.Decrypt interfaces
-// the following Decrypt and Sign functions uses ordinary private keys
 
 func NewVaultCrypto(conf *Vault) (Vault, error) {
 
@@ -204,15 +199,16 @@ func (t Vault) TLSConfig() *tls.Config {
 	// they didn't specify the CA certs to use to verify them, then
 	// use the CA Cert for KMS itself...
 
-	if t.ClientCAs == nil && t.ClientAuth != tls.NoClientCert {
-		t.ClientCAs = caCertPool
+	if t.ExtTLSConfig.ClientCAs == nil && t.ExtTLSConfig.ClientAuth != tls.NoClientCert {
+		t.ExtTLSConfig.ClientCAs = caCertPool
 	}
 
 	return &tls.Config{
 		Certificates: []tls.Certificate{t.TLSCertificate()},
 		RootCAs:      caCertPool,
-		ClientCAs:    t.ClientCAs,
-		ClientAuth:   t.ClientAuth,
+		ClientCAs:    t.ExtTLSConfig.ClientCAs,
+		ClientAuth:   t.ExtTLSConfig.ClientAuth,
+		ServerName:   t.ExtTLSConfig.ServerName,
 
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,

@@ -55,8 +55,10 @@ import (
 		VaultPath:   "pki/issue/domain-dot-com",
 		VaultCAcert: "CA_crt.pem",
 		VaultAddr:   "https://vault.domain.com:8200",
-		// ClientCAs:   clientCaCertPool,  // specified implicitly with vault CA
-		ClientAuth:  tls.RequireAndVerifyClientCert,
+		ExtTLSConfig: &tls.Config{
+			ClientAuth: tls.RequireAndVerifyClientCert,
+		},
+
 	})	
 
 	caCert, err := ioutil.ReadFile("CA_crt.pem")

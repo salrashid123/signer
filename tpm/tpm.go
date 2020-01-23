@@ -30,10 +30,7 @@ type TPM struct {
 	crypto.Decrypter
 
 	PublicCertFile string
-	Certificates   []tls.Certificate
-	RootCAs        *x509.CertPool
-	ClientCAs      *x509.CertPool
-	ClientAuth     tls.ClientAuthType
+	ExtTLSConfig   *tls.Config
 
 	TpmHandle    uint32
 	TpmDevice    string
@@ -51,7 +48,15 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 			log.Fatalf("google: Public Unable to close TPM: %v", err)
 		}
 	}()
+	if conf.ExtTLSConfig != nil {
+		if len(conf.ExtTLSConfig.Certificates) > 0 {
+			return TPM{}, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
+		}
 
+		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
+			return TPM{}, fmt.Errorf("CipherSuites value in ExtTLSConfig Ignored")
+		}
+	}
 	return *conf, nil
 }
 
@@ -100,9 +105,11 @@ func (t TPM) TLSConfig() *tls.Config {
 
 	return &tls.Config{
 		Certificates: []tls.Certificate{t.TLSCertificate()},
-		RootCAs:      t.RootCAs,
-		ClientCAs:    t.ClientCAs,
-		ClientAuth:   t.ClientAuth,
+
+		RootCAs:    t.ExtTLSConfig.RootCAs,
+		ClientCAs:  t.ExtTLSConfig.ClientCAs,
+		ClientAuth: t.ExtTLSConfig.ClientAuth,
+		ServerName: t.ExtTLSConfig.ServerName,
 
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,

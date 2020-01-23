@@ -34,10 +34,7 @@ type KMS struct {
 	crypto.Decrypter // https://golang.org/pkg/crypto/#Decrypter
 
 	PublicKeyFile string
-	Certificates  []tls.Certificate
-	RootCAs       *x509.CertPool
-	ClientCAs     *x509.CertPool
-	ClientAuth    tls.ClientAuthType
+	ExtTLSConfig  *tls.Config
 
 	ProjectId  string
 	LocationId string
@@ -49,6 +46,15 @@ type KMS struct {
 func NewKMSCrypto(conf *KMS) (KMS, error) {
 	if conf.ProjectId == "" {
 		return KMS{}, fmt.Errorf("ProjectID cannot be null")
+	}
+	if conf.ExtTLSConfig != nil {
+		if len(conf.ExtTLSConfig.Certificates) > 0 {
+			return KMS{}, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
+		}
+
+		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
+			return KMS{}, fmt.Errorf("CipherSuites value in ExtTLSConfig Ignored")
+		}
 	}
 	return *conf, nil
 }
@@ -97,7 +103,6 @@ func (t KMS) TLSCertificate() tls.Certificate {
 	if err != nil {
 		log.Fatalf("failed to parse public key: " + err.Error())
 	}
-	rootCAs = t.RootCAs
 	x509Certificate = *pub
 	var privKey crypto.PrivateKey = t
 	return tls.Certificate{
@@ -110,9 +115,10 @@ func (t KMS) TLSCertificate() tls.Certificate {
 func (t KMS) TLSConfig() *tls.Config {
 	return &tls.Config{
 		Certificates: []tls.Certificate{t.TLSCertificate()},
-		RootCAs:      t.RootCAs,
-		ClientCAs:    t.ClientCAs,
-		ClientAuth:   t.ClientAuth,
+		RootCAs:      t.ExtTLSConfig.RootCAs,
+		ClientCAs:    t.ExtTLSConfig.ClientCAs,
+		ClientAuth:   t.ExtTLSConfig.ClientAuth,
+		ServerName:   t.ExtTLSConfig.ServerName,
 
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
