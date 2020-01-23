@@ -74,8 +74,10 @@ import (
 		RootCAs:        caCertPool,
 		//PublicPEMFile:  "server.pem",  // not required 
 		PrivatePEMFile: "server.key",
-		ClientCAs:      clientCaCertPool,
-		ClientAuth:     tls.RequireAndVerifyClientCert,
+		//ExtTLSConfig: &tls.Config{
+		//	ClientCAs:      clientCaCertPool,
+		//	ClientAuth:     tls.RequireAndVerifyClientCert,
+		//},		
 	})
 
 
