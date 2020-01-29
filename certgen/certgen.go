@@ -53,8 +53,9 @@ var (
 )
 
 type certGenConfig struct {
-	flCN  string
-	flSNI string
+	flCN       string
+	flFileName string
+	flSNI      string
 }
 
 func main() {
@@ -87,6 +88,7 @@ func main() {
 func createSelfSignedPubCert(t crypto.Signer) error {
 
 	flag.StringVar(&cfg.flCN, "cn", "", "(required) CN= value for the certificate")
+	flag.StringVar(&cfg.flFileName, "filename", "cert.pem", "Filename to save the generated cert")
 	flag.Parse()
 
 	argError := func(s string, v ...interface{}) {
@@ -134,17 +136,17 @@ func createSelfSignedPubCert(t crypto.Signer) error {
 	if err != nil {
 		log.Fatalf("Failed to create certificate: %s", err)
 	}
-	certOut, err := os.Create("cert.pem")
+	certOut, err := os.Create(cfg.flFileName)
 	if err != nil {
-		log.Fatalf("Failed to open cert.pem for writing: %s", err)
+		log.Fatalf("Failed to open %s for writing: %s", cfg.flFileName, err)
 	}
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
-		log.Fatalf("Failed to write data to cert.pem: %s", err)
+		log.Fatalf("Failed to write data to %s: %s", cfg.flFileName, err)
 	}
 	if err := certOut.Close(); err != nil {
-		log.Fatalf("Error closing cert.pem: %s", err)
+		log.Fatalf("Error closing %s  %s", cfg.flFileName, err)
 	}
-	log.Print("wrote cert.pem\n")
+	log.Printf("wrote %s\n", cfg.flFileName)
 
 	return nil
 }
