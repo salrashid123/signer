@@ -66,19 +66,6 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 
 func (t TPM) TLSCertificate() tls.Certificate {
 
-	rwc, err := tpm2.OpenTPM(t.TpmDevice)
-	if err != nil {
-		log.Fatalf("google: Public: Unable to Open TPM: %v", err)
-	}
-	defer func() {
-		if err := rwc.Close(); err != nil {
-			log.Fatalf("google: Public Unable to close TPM: %v", err)
-		}
-	}()
-
-	if rwc == nil {
-		log.Fatalf("TPM Handle not Initialized.   Run NewTPMCrypt() first")
-	}
 	if t.PublicCertFile == "" {
 		log.Fatalf("Public X509 certificate not specified")
 	}
@@ -125,22 +112,22 @@ func (t TPM) TLSConfig() *tls.Config {
 }
 
 func (t TPM) Public() crypto.PublicKey {
-	t.refreshMutex.Lock()
-	defer t.refreshMutex.Unlock()
-
-	rwc, err := tpm2.OpenTPM(t.TpmDevice)
-	if err != nil {
-		log.Fatalf("google: Public: Unable to Open TPM: %v", err)
-	}
-	defer func() {
-		if err := rwc.Close(); err != nil {
-			log.Fatalf("google: Public Unable to close TPM: %v", err)
-		}
-	}()
-	if rwc == nil {
-		log.Fatalf("TPM Handle not Initialized.   Run NewTPMCrypt() first")
-	}
 	if publicKey == nil {
+		t.refreshMutex.Lock()
+		defer t.refreshMutex.Unlock()
+
+		rwc, err := tpm2.OpenTPM(t.TpmDevice)
+		if err != nil {
+			log.Fatalf("google: Public: Unable to Open TPM: %v", err)
+		}
+		defer func() {
+			if err := rwc.Close(); err != nil {
+				log.Fatalf("google: Public Unable to close TPM: %v", err)
+			}
+		}()
+		if rwc == nil {
+			log.Fatalf("TPM Handle not Initialized.   Run NewTPMCrypt() first")
+		}
 		handle := tpmutil.Handle(t.TpmHandle)
 		pub, _, _, err := tpm2.ReadPublic(rwc, handle)
 		if err != nil {
@@ -161,15 +148,15 @@ func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 
 	rwc, err := tpm2.OpenTPM(t.TpmDevice)
 	if err != nil {
-		log.Fatalf("google: Public: Unable to Open TPM: %v", err)
+		return nil, fmt.Errorf("google: Sign: Unable to Open TPM: %v", err)
 	}
 	defer func() {
 		if err := rwc.Close(); err != nil {
-			log.Fatalf("google: Public Unable to close TPM: %v", err)
+			log.Fatalf("google: Public Sign to close TPM: %v", err)
 		}
 	}()
 	if rwc == nil {
-		log.Fatalf("TPM Handle not Initialized.   Run NewTPMCrypt() first")
+		return nil, fmt.Errorf("sal: Sign: TPM Handle not Initialized.   Run NewTPMCrypt() first")
 	}
 	hash := opts.HashFunc()
 	if len(digest) != hash.Size() {
@@ -192,7 +179,7 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 
 	rwc, err := tpm2.OpenTPM(t.TpmDevice)
 	if err != nil {
-		log.Fatalf("google: Public: Unable to Open TPM: %v", err)
+		return nil, fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
 	}
 	defer func() {
 		if err := rwc.Close(); err != nil {
@@ -201,7 +188,7 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 	}()
 
 	if rwc == nil {
-		log.Fatalf("TPM Handle not Initialized.   Run NewTPMCrypt() first")
+		return nil, fmt.Errorf("TPM Handle not Initialized.   Run NewTPMCrypt() first")
 	}
 	handle := tpmutil.Handle(t.TpmHandle)
 	dec, err := tpm2.RSADecrypt(rwc, handle, "", msg, &tpm2.AsymScheme{
