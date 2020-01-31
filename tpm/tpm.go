@@ -27,6 +27,7 @@ var (
 	publicKey       crypto.PublicKey
 	clientCAs       *x509.CertPool
 	clientAuth      *tls.ClientAuthType
+	rwc             io.ReadWriteCloser
 )
 
 type TPM struct {
@@ -43,15 +44,12 @@ type TPM struct {
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
 
-	rwc, err := tpm2.OpenTPM(conf.TpmDevice)
+	var err error
+	rwc, err = tpm2.OpenTPM(conf.TpmDevice)
 	if err != nil {
 		return TPM{}, fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
 	}
-	defer func() {
-		if err := rwc.Close(); err != nil {
-			log.Fatalf("google: Public Unable to close TPM: %v", err)
-		}
-	}()
+
 	if conf.ExtTLSConfig != nil {
 		if len(conf.ExtTLSConfig.Certificates) > 0 {
 			return TPM{}, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
@@ -116,18 +114,6 @@ func (t TPM) Public() crypto.PublicKey {
 		t.refreshMutex.Lock()
 		defer t.refreshMutex.Unlock()
 
-		rwc, err := tpm2.OpenTPM(t.TpmDevice)
-		if err != nil {
-			log.Fatalf("google: Public: Unable to Open TPM: %v", err)
-		}
-		defer func() {
-			if err := rwc.Close(); err != nil {
-				log.Fatalf("google: Public Unable to close TPM: %v", err)
-			}
-		}()
-		if rwc == nil {
-			log.Fatalf("TPM Handle not Initialized.   Run NewTPMCrypt() first")
-		}
 		handle := tpmutil.Handle(t.TpmHandle)
 		pub, _, _, err := tpm2.ReadPublic(rwc, handle)
 		if err != nil {
@@ -146,18 +132,6 @@ func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
-	rwc, err := tpm2.OpenTPM(t.TpmDevice)
-	if err != nil {
-		return nil, fmt.Errorf("google: Sign: Unable to Open TPM: %v", err)
-	}
-	defer func() {
-		if err := rwc.Close(); err != nil {
-			log.Fatalf("google: Public Sign to close TPM: %v", err)
-		}
-	}()
-	if rwc == nil {
-		return nil, fmt.Errorf("sal: Sign: TPM Handle not Initialized.   Run NewTPMCrypt() first")
-	}
 	hash := opts.HashFunc()
 	if len(digest) != hash.Size() {
 		return nil, fmt.Errorf("sal: Sign: Digest length doesn't match passed crypto algorithm")
@@ -177,19 +151,6 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
-	rwc, err := tpm2.OpenTPM(t.TpmDevice)
-	if err != nil {
-		return nil, fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
-	}
-	defer func() {
-		if err := rwc.Close(); err != nil {
-			log.Fatalf("google: Public Unable to close TPM: %v", err)
-		}
-	}()
-
-	if rwc == nil {
-		return nil, fmt.Errorf("TPM Handle not Initialized.   Run NewTPMCrypt() first")
-	}
 	handle := tpmutil.Handle(t.TpmHandle)
 	dec, err := tpm2.RSADecrypt(rwc, handle, "", msg, &tpm2.AsymScheme{
 		Alg:  tpm2.AlgOAEP,
@@ -199,4 +160,8 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 		return nil, fmt.Errorf("google: Unable to Decrypt with TPM: %v", err)
 	}
 	return dec, nil
+}
+
+func (t TPM) Close() error {
+	return rwc.Close()
 }
