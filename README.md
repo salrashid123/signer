@@ -17,7 +17,7 @@ for private keys based on
     tpm2_readpublic -c key.ctx -f PEM -o public.pem
     tpm2_evictcontrol -C o -c key.ctx 0x81010002 
 ```
-- `pem/`:  Sample that implements `crypto.Signer` and `crypto.Decrypter` using regular pem can x509 certificates 
+- `pem/`:  Sample that implements `crypto.Signer` and `crypto.Decrypter` using regular pem and x509 certificates. They key file this mode accepts is RSA private key.
 - `certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 
 ### Usage Signer
@@ -61,6 +61,7 @@ import (
 
 	})	
 
+	// for TLS
 	caCert, err := ioutil.ReadFile("CA_crt.pem")
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
@@ -222,4 +223,74 @@ Certificate:
             Not Before: Jan  7 17:59:12 2020 GMT
             Not After : Jan  6 17:59:12 2021 GMT
         Subject: O = Google, CN = sal.domain.com
+```
+
+
+### Usage GCS SignedURL
+
+You can use any of the `crypto.Signer` implementations to generate a [GCS SignedURL](https://cloud.google.com/storage/docs/access-control/signed-urls).  Simply pass in the bytes to sign into a signer:
+
+```golang
+package main
+
+import (
+...
+	sal "github.com/salrashid123/signer/pem"
+	"cloud.google.com/go/storage"
+...
+)
+
+var (
+	projectId  = "project"
+	bucketName = "yorubucket"
+)
+
+
+func main() {
+
+	r, err := sal.NewPEMCrypto(&sal.PEM{
+		PrivatePEMFile: "/path/to/rsa-privatekey.pem",
+	})
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	object := "foo.txt"
+	expires := time.Now().Add(time.Minute * 10)
+	key := "your-service-account@project.iam.gserviceaccount.com"
+
+	s, err := storage.SignedURL(bucketName, object, &storage.SignedURLOptions{
+		Scheme:         storage.SigningSchemeV4,
+		GoogleAccessID: key,
+		SignBytes: func(b []byte) ([]byte, error) {
+			sum := sha256.Sum256(b)
+			return r.Sign(rand.Reader, sum[:], crypto.SHA256)
+		},
+		Method:  "GET",
+		Expires: expires,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println(s)
+
+	resp, err := http.Get(s)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	log.Println("SignedURL Response :\n", string(body))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+```
+
+If you have a GCP Service Account in PEM format, you need to convert the key to RSA:
+```
+$ openssl rsa -in sa_key.pem  -out sa_key-rsa.pem
 ```
