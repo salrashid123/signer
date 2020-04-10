@@ -17,6 +17,7 @@ for private keys based on
     tpm2_readpublic -c key.ctx -f PEM -o public.pem
     tpm2_evictcontrol -C o -c key.ctx 0x81010002 
 ```
+  When using the TPM for mTLS operations, make sure the Signature Hash thats received from the server uses `sha256`.  I've noticed that when TLSConfig is used against `nginx`, the Signing will fail as the Hash received with `crypto.SignerOpts` uses SHA512.
 - `pem/`:  Sample that implements `crypto.Signer` and `crypto.Decrypter` using regular pem and x509 certificates. They key file this mode accepts is RSA private key.
 - `certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 
@@ -72,10 +73,10 @@ import (
 
 	r, err := sal.NewPEMCrypto(&sal.PEM{
 		PublicCertFile: "server.crt",  // TLS requres x509
-		RootCAs:        caCertPool,
 		//PublicPEMFile:  "server.pem",  // not required 
 		PrivatePEMFile: "server.key",
 		//ExtTLSConfig: &tls.Config{
+		//  RootCAs:        caCertPool,	
 		//	ClientCAs:      clientCaCertPool,
 		//	ClientAuth:     tls.RequireAndVerifyClientCert,
 		//},		

@@ -122,7 +122,7 @@ func (t PEM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	return rsa.SignPKCS1v15(rand.Reader, priv, crypto.SHA256, digest)
+	return rsa.SignPKCS1v15(rand.Reader, priv, hash, digest)
 }
 
 func (t PEM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
