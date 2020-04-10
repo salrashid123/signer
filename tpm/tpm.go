@@ -142,9 +142,6 @@ func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 		Hash: tpm2.AlgSHA256,
 	})
 	if err != nil {
-		if err := rwc.Close(); err != nil {
-			log.Fatalf("%v\ncan't close TPM %q: %v", retErr, tpmPath, err)
-		}
 		return nil, fmt.Errorf("google: Unable to Sign with TPM: %v", err)
 	}
 	return []byte(sig.RSA.Signature), nil
@@ -160,9 +157,6 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 		Hash: tpm2.AlgSHA256,
 	}, "")
 	if err != nil {
-		if err := rwc.Close(); err != nil {
-			log.Fatalf("%v\ncan't close TPM %q: %v", retErr, tpmPath, err)
-		}
 		return nil, fmt.Errorf("google: Unable to Decrypt with TPM: %v", err)
 	}
 	return dec, nil
