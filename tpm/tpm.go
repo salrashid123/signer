@@ -37,17 +37,23 @@ type TPM struct {
 	PublicCertFile string
 	ExtTLSConfig   *tls.Config
 
-	TpmHandle    uint32
-	TpmDevice    string
-	refreshMutex sync.Mutex
+	TpmHandleFile string
+	TpmHandle     uint32
+	TpmDevice     string
+	refreshMutex  sync.Mutex
 }
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
 
 	var err error
-	rwc, err = tpm2.OpenTPM(conf.TpmDevice)
+	rwc, err := tpm2.OpenTPM(conf.TpmDevice)
 	if err != nil {
 		return TPM{}, fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
+	}
+	defer rwc.Close()
+
+	if conf.TpmHandleFile != "" && conf.TpmHandle != 0 {
+		return TPM{}, fmt.Errorf("At most one of TpmHandle or TpmHandleFile must be specified")
 	}
 
 	if conf.ExtTLSConfig != nil {
@@ -114,7 +120,28 @@ func (t TPM) Public() crypto.PublicKey {
 		t.refreshMutex.Lock()
 		defer t.refreshMutex.Unlock()
 
-		handle := tpmutil.Handle(t.TpmHandle)
+		rwc, err := tpm2.OpenTPM(t.TpmDevice)
+		if err != nil {
+			return err
+		}
+		defer rwc.Close()
+
+		var handle tpmutil.Handle
+		defer tpm2.FlushContext(rwc, handle)
+		if t.TpmHandleFile != "" {
+			log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
+			pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
+			if err != nil {
+				log.Fatalf("google: Unable to Read Public data from TPM: %v", err)
+			}
+			handle, err = tpm2.ContextLoad(rwc, pHBytes)
+			if err != nil {
+				return nil
+			}
+		} else {
+			handle = tpmutil.Handle(t.TpmHandle)
+		}
+
 		pub, _, _, err := tpm2.ReadPublic(rwc, handle)
 		if err != nil {
 			log.Fatalf("google: Unable to Read Public data from TPM: %v", err)
@@ -132,11 +159,32 @@ func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
+	rwc, err := tpm2.OpenTPM(t.TpmDevice)
+	if err != nil {
+		return []byte(""), err
+	}
+	defer rwc.Close()
+
+	var handle tpmutil.Handle
+	defer tpm2.FlushContext(rwc, handle)
+	if t.TpmHandleFile != "" {
+		log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
+		pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
+		if err != nil {
+			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
+		}
+		handle, err = tpm2.ContextLoad(rwc, pHBytes)
+		if err != nil {
+			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
+		}
+	} else {
+		handle = tpmutil.Handle(t.TpmHandle)
+	}
+
 	hash := opts.HashFunc()
 	if len(digest) != hash.Size() {
 		return nil, fmt.Errorf("sal: Sign: Digest length doesn't match passed crypto algorithm")
 	}
-	handle := tpmutil.Handle(t.TpmHandle)
 	sig, err := tpm2.Sign(rwc, handle, "", digest, &tpm2.SigScheme{
 		Alg:  tpm2.AlgRSASSA,
 		Hash: tpm2.AlgSHA256,
@@ -151,7 +199,28 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
-	handle := tpmutil.Handle(t.TpmHandle)
+	rwc, err := tpm2.OpenTPM(t.TpmDevice)
+	if err != nil {
+		return []byte(""), err
+	}
+	defer rwc.Close()
+
+	var handle tpmutil.Handle
+	defer tpm2.FlushContext(rwc, handle)
+	if t.TpmHandleFile != "" {
+		log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
+		pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
+		if err != nil {
+			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
+		}
+		handle, err = tpm2.ContextLoad(rwc, pHBytes)
+		if err != nil {
+			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
+		}
+	} else {
+		handle = tpmutil.Handle(t.TpmHandle)
+	}
+
 	dec, err := tpm2.RSADecrypt(rwc, handle, "", msg, &tpm2.AsymScheme{
 		Alg:  tpm2.AlgOAEP,
 		Hash: tpm2.AlgSHA256,

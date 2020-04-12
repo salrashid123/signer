@@ -38,8 +38,11 @@ import (
 )
 
 	c, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-	 	TpmDevice: "/dev/tpm0",
-	 	TpmHandle: 0x81010002,
+		 TpmDevice: "/dev/tpm0",
+		 // Define either a persistent handle or a key reference file.  eg: 
+		 // https://github.com/salrashid123/tpm2/blob/master/utils/importExternalRSA.go
+		 //TpmHandle: 0x81010002,
+		 TpmHandleFile: "/path/to/key.bin", 
     })
     
 	r, err := salkms.NewKMSCrypto(&salkms.KMS{
