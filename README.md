@@ -22,6 +22,9 @@ for private keys based on
 - `certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 - `csrgen/`:  Library that generates a CSR using the key in KMS or TPM 
 
+
+>> IMPORTANT: you must use at **MOST** go1.13 since versions beyond that uses RSA-PSS (ref [32425](https://github.com/golang/go/issues/32425)) and atleast KMS only support RSA
+
 ### Usage Signer
 
 Initialize a signer and directly use `.sign()` as shown in this sample for GCS SignedURL:
