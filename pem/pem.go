@@ -1,8 +1,7 @@
 // Copyright 2020 Google LLC.
 // Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-package tpm
+// license that can be found in the LICENSE file.package tpm
+package pem
 
 import (
 	"crypto"
@@ -122,7 +121,16 @@ func (t PEM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	return rsa.SignPKCS1v15(rand.Reader, priv, hash, digest)
+
+	// RSA-PSS: https://github.com/golang/go/issues/32425
+	var ropts rsa.PSSOptions
+	ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
+
+	signature, err := rsa.SignPSS(rand.Reader, priv, opts.HashFunc(), digest, &ropts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign RSA-PSS %v", err)
+	}
+	return signature, nil
 }
 
 func (t PEM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
