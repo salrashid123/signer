@@ -16,6 +16,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/google/go-tpm-tools/tpm2tools"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
@@ -28,6 +29,21 @@ var (
 	clientCAs       *x509.CertPool
 	clientAuth      *tls.ClientAuthType
 	rwc             io.ReadWriteCloser
+
+	unrestrictedKeyParams = tpm2.Public{
+		Type:    tpm2.AlgRSA,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
+			tpm2.FlagUserWithAuth | tpm2.FlagSign,
+		AuthPolicy: []byte{},
+		RSAParameters: &tpm2.RSAParams{
+			Sign: &tpm2.SigScheme{
+				Alg:  tpm2.AlgRSAPSS,
+				Hash: tpm2.AlgSHA256,
+			},
+			KeyBits: 2048,
+		},
+	}
 )
 
 type TPM struct {
@@ -155,44 +171,43 @@ func (t TPM) Public() crypto.PublicKey {
 	return publicKey
 }
 
-func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
+	var err error
 	rwc, err := tpm2.OpenTPM(t.TpmDevice)
 	if err != nil {
-		return []byte(""), err
+		return []byte(""), fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
 	}
 	defer rwc.Close()
 
-	var handle tpmutil.Handle
-	defer tpm2.FlushContext(rwc, handle)
-	if t.TpmHandleFile != "" {
-		log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
-		pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
-		if err != nil {
-			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
-		}
-		handle, err = tpm2.ContextLoad(rwc, pHBytes)
-		if err != nil {
-			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
-		}
-	} else {
-		handle = tpmutil.Handle(t.TpmHandle)
+	khBytes, err := ioutil.ReadFile(t.TpmHandleFile)
+	if err != nil {
+
+		return []byte(""), fmt.Errorf("ContextLoad read file for kh: %v", err)
+	}
+	kh, err := tpm2.ContextLoad(rwc, khBytes)
+	if err != nil {
+		return []byte(""), fmt.Errorf("ContextLoad failed for kh: %v", err)
+	}
+	defer tpm2.FlushContext(rwc, kh)
+	k, err := tpm2tools.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParams, kh)
+	if err != nil {
+		return []byte(""), fmt.Errorf("Couldnot load CachedKey: %v", err)
 	}
 
-	hash := opts.HashFunc()
-	if len(digest) != hash.Size() {
-		return nil, fmt.Errorf("sal: Sign: Digest length doesn't match passed crypto algorithm")
-	}
-	sig, err := tpm2.Sign(rwc, handle, "", digest, &tpm2.SigScheme{
-		Alg:  tpm2.AlgRSASSA,
-		Hash: tpm2.AlgSHA256,
-	})
+	s, err := k.GetSigner()
 	if err != nil {
-		return nil, fmt.Errorf("google: Unable to Sign with TPM: %v", err)
+		return []byte(""), fmt.Errorf("Couldnot get Signer: %v", err)
 	}
-	return []byte(sig.RSA.Signature), nil
+	if _, ok := opts.(*rsa.PSSOptions); ok {
+		opts = &rsa.PSSOptions{
+			Hash:       crypto.SHA256,
+			SaltLength: rsa.PSSSaltLengthAuto,
+		}
+	}
+	return s.Sign(rr, digest, opts)
 }
 
 func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
