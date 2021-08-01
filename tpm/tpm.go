@@ -16,7 +16,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/google/go-tpm-tools/tpm2tools"
+	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
@@ -192,7 +192,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		return []byte(""), fmt.Errorf("ContextLoad failed for kh: %v", err)
 	}
 	defer tpm2.FlushContext(rwc, kh)
-	k, err := tpm2tools.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParams, kh)
+	k, err := client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParams, kh)
 	if err != nil {
 		return []byte(""), fmt.Errorf("Couldnot load CachedKey: %v", err)
 	}
