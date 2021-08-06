@@ -143,7 +143,7 @@ func (t TPM) Public() crypto.PublicKey {
 		defer rwc.Close()
 
 		var handle tpmutil.Handle
-		defer tpm2.FlushContext(rwc, handle)
+		//defer tpm2.FlushContext(rwc, handle)
 		if t.TpmHandleFile != "" {
 			log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
 			pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
@@ -167,6 +167,7 @@ func (t TPM) Public() crypto.PublicKey {
 			log.Fatalf("google: Unable to Read Public key from TPM: %v", err)
 		}
 		publicKey = pubKey.(*rsa.PublicKey)
+		tpm2.FlushContext(rwc, handle)
 	}
 	return publicKey
 }
@@ -184,7 +185,6 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 
 	khBytes, err := ioutil.ReadFile(t.TpmHandleFile)
 	if err != nil {
-
 		return []byte(""), fmt.Errorf("ContextLoad read file for kh: %v", err)
 	}
 	kh, err := tpm2.ContextLoad(rwc, khBytes)
@@ -243,6 +243,7 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 	if err != nil {
 		return nil, fmt.Errorf("google: Unable to Decrypt with TPM: %v", err)
 	}
+	tpm2.FlushContext(rwc, handle)
 	return dec, nil
 }
 
