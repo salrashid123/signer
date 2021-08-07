@@ -117,17 +117,13 @@ func (t TPM) TLSConfig() *tls.Config {
 	return &tls.Config{
 		Certificates: []tls.Certificate{t.TLSCertificate()},
 
-		RootCAs:    t.ExtTLSConfig.RootCAs,
-		ClientCAs:  t.ExtTLSConfig.ClientCAs,
-		ClientAuth: t.ExtTLSConfig.ClientAuth,
-		ServerName: t.ExtTLSConfig.ServerName,
-
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
-		},
-		MaxVersion: tls.VersionTLS12,
+		RootCAs:      t.ExtTLSConfig.RootCAs,
+		ClientCAs:    t.ExtTLSConfig.ClientCAs,
+		ClientAuth:   t.ExtTLSConfig.ClientAuth,
+		ServerName:   t.ExtTLSConfig.ServerName,
+		CipherSuites: t.ExtTLSConfig.CipherSuites,
+		MaxVersion:   t.ExtTLSConfig.MaxVersion,
+		MinVersion:   t.ExtTLSConfig.MinVersion,
 	}
 }
 

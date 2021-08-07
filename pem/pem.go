@@ -194,11 +194,8 @@ func (t PEM) TLSConfig() *tls.Config {
 		ClientAuth:   t.ExtTLSConfig.ClientAuth,
 		ServerName:   t.ExtTLSConfig.ServerName,
 
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
-		},
-		MaxVersion: tls.VersionTLS12,
+		CipherSuites: t.ExtTLSConfig.CipherSuites,
+		MaxVersion:   t.ExtTLSConfig.MaxVersion,
+		MinVersion:   t.ExtTLSConfig.MinVersion,
 	}
 }
