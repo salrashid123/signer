@@ -1,10 +1,2 @@
-github.com/salrashid123/signer v0.0.0-20210208003832-305f495ac915 h1:9r740J3+m6rMo1r8j1+b83bvj0pGfQcXGvGKtscQtFQ=
-github.com/salrashid123/signer v0.0.0-20210208003832-305f495ac915/go.mod h1:nnPEj0R9nLlUITJROI2vl6s1WtwArLwQJx3UFs6GGB8=
-golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f h1:OfiFi4JbukWwe3lzw+xunroH1mnC1e2Gy5cxNJApiSY=
-golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=
-golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
-golang.org/x/sys v0.0.0-20210423082822-04245dca01da/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
-golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
-golang.org/x/text v0.3.6 h1:aRYxNxv6iGQlyVaZmk6ZgYEDa+Jg18DxebPSrd6bg1M=
-golang.org/x/text v0.3.6/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
-golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
+github.com/salrashid123/signer/pem v0.0.0-20211017181626-99a9e0308143 h1:ySOkac37GTifZnzr8jW4ekWstsQVB91VLxYvP/2A8Cc=
+github.com/salrashid123/signer/pem v0.0.0-20211017181626-99a9e0308143/go.mod h1:ubge4ZKbdCTGpQRmnl2GRF+iXEYf5aPbIaLyGETaX7c=

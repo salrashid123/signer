@@ -41,7 +41,7 @@ func main() {
 	}
 	fmt.Printf("%s\n", base64.StdEncoding.EncodeToString(s))
 
-	rc, err := ioutil.ReadFile("local.crt")
+	rc, err := ioutil.ReadFile("client.crt")
 	if err != nil {
 		fmt.Println(err)
 		return
