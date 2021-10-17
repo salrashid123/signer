@@ -23,6 +23,11 @@ for private keys based on
 - `csrgen/`:  Library that generates a CSR using the key in KMS or TPM 
 
 
+Also see:
+
+- [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
+- [GCS signedURLs and GCP Authentication with Trusted Platform Module](https://github.com/salrashid123/gcs_tpm)
+
 >> IMPORTANT: you must use at **MOST** go1.13 since versions beyond that uses RSA-PSS (ref [32425](https://github.com/golang/go/issues/32425)) and atleast KMS only support RSA
 
 ### Usage Signer
@@ -33,141 +38,27 @@ Initialize a signer and directly use `.sign()` as shown in this sample for GCS S
 
 ### Usage TLS
 
-```golang
-import (
-	salkms "github.com/salrashid123/signer/kms"
-	saltpm "github.com/salrashid123/signer/tpm"
-	salpem "github.com/salrashid123/signer/pem"
-	salvault "github.com/salrashid123/signer/vault"
-)
-
-	c, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-		 TpmDevice: "/dev/tpm0",
-		 // Define either a persistent handle or a key reference file.  eg: 
-		 // https://github.com/salrashid123/tpm2/blob/master/utils/importExternalRSA.go
-		 //TpmHandle: 0x81010002,
-		 TpmHandleFile: "/path/to/key.bin", 
-    })
-    
-	r, err := salkms.NewKMSCrypto(&salkms.KMS{
-		ProjectId:  "mineral-minutia-820",
-		LocationId: "us-central1",
-		KeyRing:    "mykeyring",
-		Key:        "rsign",
-		KeyVersion: "1",
-	})
-
-	r, err := salvault.NewVaultCrypto(&salvault.Vault{
-		CertCN:      "server.domain.com",
-		VaultToken:  "s.IumzeFZVsWqYcJ2IjlGaqZby",
-		VaultPath:   "pki/issue/domain-dot-com",
-		VaultCAcert: "CA_crt.pem",
-		VaultAddr:   "https://vault.domain.com:8200",
-		ExtTLSConfig: &tls.Config{
-			ClientAuth: tls.RequireAndVerifyClientCert,
-		},
-
-	})	
-
-	// for TLS
-	caCert, err := ioutil.ReadFile("CA_crt.pem")
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
-
-	clientCaCert, err := ioutil.ReadFile("CA_crt.pem")
-	clientCaCertPool := x509.NewCertPool()
-	clientCaCertPool.AppendCertsFromPEM(clientCaCert)
-
-	r, err := sal.NewPEMCrypto(&sal.PEM{
-		PublicCertFile: "server.crt",  // TLS requres x509
-		//PublicPEMFile:  "server.pem",  // not required 
-		PrivatePEMFile: "server.key",
-		//ExtTLSConfig: &tls.Config{
-		//  RootCAs:        caCertPool,	
-		//	ClientCAs:      clientCaCertPool,
-		//	ClientAuth:     tls.RequireAndVerifyClientCert,
-		//},		
-	})
-
-
-```
-
+see `example/mtls` folder
 
 ### Sign/Verify PSS
 
-```golang
-package main
+see `example/sign_decrypt` folder
 
-import (
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/pem"
-	"fmt"
-	"io/ioutil"
-	"log"
 
-	sal "github.com/salrashid123/signer/pem"
-)
+### Usage: Generate self-signed certificate
 
-var ()
+see `util/certgen/`
 
-func main() {
+```
+go run certgen/certgen.go -cn server.domain.com
+```
 
-	r, err := sal.NewPEMCrypto(&sal.PEM{
-		PrivatePEMFile: "local.key",
-	})
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+### Usage: Generate CSR
 
-	b := []byte("foo")
+see `util/csrgen/`
 
-	h := sha256.New()
-	h.Write(b)
-	digest := h.Sum(nil)
-
-	s, err := r.Sign(rand.Reader, digest, crypto.SHA256)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	fmt.Printf("%s\n", base64.StdEncoding.EncodeToString(s))
-
-	rc, err := ioutil.ReadFile("local.crt")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	block, _ := pem.Decode(rc)
-
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	rsaPubKey, ok := cert.PublicKey.(*rsa.PublicKey)
-	if !ok {
-		fmt.Println(err)
-		return
-	}
-
-	var ropts rsa.PSSOptions
-	ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
-
-	err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest, s, &ropts)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-}
+```
+go run certgen/certgen.go -cn server.domain.com
 ```
 
 ### Usage CA (sign CSR)
@@ -197,27 +88,23 @@ import (
 	"math/big"
 	"time"
 
-	sal "github.com/salrashid123/signer/kms"
+	sal "github.com/salrashid123/signer/pem"
 )
 
 const (
-	projectID = "yourproject"
+
 )
 
 var ()
 
 func main() {
-	t, err := sal.NewKMSCrypto(&sal.KMS{
-		ProjectId:  projectID,
-		LocationId: "us-central1",
-		KeyRing:    "mycacerts",
-		Key:        "server",
-		KeyVersion: "2",
+	t, err := salpem.NewPEMCrypto(&salpem.PEM{
+		PrivatePEMFile: "server.key",
 	})
 	if err != nil {
-		log.Println(err)
-		return
+		log.Fatal(err)
 	}
+
 
 	var notBefore time.Time
 	notBefore = time.Now()
@@ -315,6 +202,8 @@ Certificate:
 ### Usage GCS SignedURL
 
 You can use any of the `crypto.Signer` implementations to generate a [GCS SignedURL](https://cloud.google.com/storage/docs/access-control/signed-urls).  Simply pass in the bytes to sign into a signer:
+
+see [GCS signedURLs and GCP Authentication with Trusted Platform Module](https://github.com/salrashid123/gcs_tpm)
 
 ```golang
 package main

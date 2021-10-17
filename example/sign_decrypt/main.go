@@ -20,7 +20,8 @@ var ()
 func main() {
 
 	r, err := sal.NewPEMCrypto(&sal.PEM{
-		PrivatePEMFile: "local.key",
+		PrivatePEMFile: "client.key",
+		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
 	})
 	if err != nil {
 		fmt.Println(err)
@@ -60,14 +61,20 @@ func main() {
 		return
 	}
 
-	var ropts rsa.PSSOptions
-	ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
-
-	err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest, s, &ropts)
+	err = rsa.VerifyPKCS1v15(rsaPubKey, crypto.SHA256, digest, s)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+
+	// var ropts rsa.PSSOptions
+	// ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
+
+	// err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest, s, &ropts)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	return
+	// }
 
 	/// *********************************************************
 

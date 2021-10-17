@@ -11,7 +11,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"io"
-	"log"
 	"sync"
 
 	"context"
@@ -40,14 +39,23 @@ type KMS struct {
 	PublicKeyFile string
 	ExtTLSConfig  *tls.Config
 
-	ProjectId  string
-	LocationId string
-	KeyRing    string
-	Key        string
-	KeyVersion string
+	ProjectId          string
+	LocationId         string
+	KeyRing            string
+	Key                string
+	KeyVersion         string
+	SignatureAlgorithm x509.SignatureAlgorithm
 }
 
 func NewKMSCrypto(conf *KMS) (KMS, error) {
+
+	if conf.SignatureAlgorithm == x509.UnknownSignatureAlgorithm {
+		conf.SignatureAlgorithm = x509.SHA256WithRSA
+	}
+	if (conf.SignatureAlgorithm != x509.SHA256WithRSA) && (conf.SignatureAlgorithm != x509.SHA256WithRSAPSS) {
+		return KMS{}, fmt.Errorf("signatureALgorithm must be either x509.SHA256WithRSA or x509.SHA256WithRSAPSS")
+	}
+
 	if conf.ProjectId == "" {
 		return KMS{}, fmt.Errorf("ProjectID cannot be null")
 	}
@@ -70,18 +78,21 @@ func (t KMS) Public() crypto.PublicKey {
 
 		kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Printf("Error getting kms client %v", err)
+			return nil
 		}
 
 		dresp, err := kmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: parentName})
 		if err != nil {
-			log.Fatal(err)
+			fmt.Printf("Error getting GetPublicKey %v", err)
+			return nil
 		}
 		pubKeyBlock, _ := pem.Decode([]byte(dresp.Pem))
 
 		pub, err := x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
 		if err != nil {
-			log.Fatalf("failed to parse public key: " + err.Error())
+			fmt.Printf("Error parsing PublicKey %v", err)
+			return nil
 		}
 		publicKey = pub.(*rsa.PublicKey)
 	}
@@ -92,20 +103,24 @@ func (t KMS) Public() crypto.PublicKey {
 func (t KMS) TLSCertificate() tls.Certificate {
 
 	if t.PublicKeyFile == "" {
-		log.Fatalf("Public X509 certificate not specified")
+		fmt.Printf("Public X509 certificate not specified")
+		return tls.Certificate{}
 	}
 
 	pubPEM, err := ioutil.ReadFile(t.PublicKeyFile)
 	if err != nil {
-		log.Fatalf("Unable to read keys %v", err)
+		fmt.Printf("Unable to read keys %v", err)
+		return tls.Certificate{}
 	}
 	block, _ := pem.Decode([]byte(pubPEM))
 	if block == nil {
-		log.Fatalf("failed to parse PEM block containing the public key")
+		fmt.Printf("failed to parse PEM block containing the public key")
+		return tls.Certificate{}
 	}
 	pub, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		log.Fatalf("failed to parse public key: " + err.Error())
+		fmt.Printf("failed to parse public key: " + err.Error())
+		return tls.Certificate{}
 	}
 	x509Certificate = *pub
 	var privKey crypto.PrivateKey = t
@@ -142,7 +157,8 @@ func (t KMS) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 
 	kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error getting kms client %v", err)
+		return nil, err
 	}
 
 	req := &kmspb.AsymmetricSignRequest{
@@ -154,7 +170,10 @@ func (t KMS) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 		},
 	}
 	dresp, err := kmsClient.AsymmetricSign(ctx, req)
-
+	if err != nil {
+		fmt.Printf("Error signing with kms client %v", err)
+		return nil, err
+	}
 	return dresp.Signature, nil
 
 }
@@ -168,7 +187,8 @@ func (t KMS) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 
 	kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error getting kms client %v", err)
+		return nil, err
 	}
 
 	dresp, err := kmsClient.AsymmetricDecrypt(ctx, &kmspb.AsymmetricDecryptRequest{
@@ -176,7 +196,8 @@ func (t KMS) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 		Ciphertext: msg,
 	})
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error decrypting with kms client %v", err)
+		return nil, err
 	}
 
 	return dresp.Plaintext, nil

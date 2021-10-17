@@ -78,8 +78,7 @@ func main() {
 	// })
 
 	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PublicPEMFile:  "server.pem",
-		PrivatePEMFile: "server.key",
+		PrivatePEMFile: "../example/server.key",
 	})
 	if err != nil {
 		log.Fatal(err)

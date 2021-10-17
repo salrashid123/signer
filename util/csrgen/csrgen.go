@@ -16,7 +16,6 @@ import (
 
 	"os"
 
-
 	salpem "github.com/salrashid123/signer/pem"
 	//salkms "github.com/salrashid123/signer/kms"
 	//saltpm "github.com/salrashid123/signer/tpm"
@@ -52,7 +51,6 @@ type certGenConfig struct {
 	flSNI      string
 }
 
-
 func main() {
 
 	// r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
@@ -69,8 +67,7 @@ func main() {
 	// })
 
 	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PublicPEMFile:  "server_rsa.pem",
-		PrivatePEMFile: "server_key.pem",
+		PrivatePEMFile: "../example/server.key",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -112,7 +109,7 @@ func createCSR(t crypto.Signer) error {
 	if err != nil {
 		log.Fatalf("Failed to create CSR: %s", err)
 	}
-	certOut, err := os.Create(cfg.flFileName )
+	certOut, err := os.Create(cfg.flFileName)
 	if err != nil {
 		log.Fatalf("Failed to open %s for writing: %s", cfg.flFileName, err)
 	}

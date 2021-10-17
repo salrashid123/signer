@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"sync"
 
@@ -178,11 +177,13 @@ func (t Vault) TLSCertificate() tls.Certificate {
 
 	block, _ := pem.Decode([]byte(publicCert))
 	if block == nil {
-		log.Fatalf("failed to parse PEM block containing the public key")
+		fmt.Printf("failed to parse PEM block containing the public key")
+		return tls.Certificate{}
 	}
 	pub, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		log.Fatalf("failed to parse public key: " + err.Error())
+		fmt.Printf("failed to parse public key: " + err.Error())
+		return tls.Certificate{}
 	}
 
 	x509Certificate = *pub

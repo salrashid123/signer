@@ -9,11 +9,9 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"sync"
 
 	"github.com/google/go-tpm-tools/client"
@@ -38,7 +36,7 @@ var (
 		AuthPolicy: []byte{},
 		RSAParameters: &tpm2.RSAParams{
 			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSAPSS,
+				Alg:  tpm2.AlgRSASSA,
 				Hash: tpm2.AlgSHA256,
 			},
 			KeyBits: 2048,
@@ -48,18 +46,22 @@ var (
 
 type TPM struct {
 	crypto.Signer
-	crypto.Decrypter
 
-	PublicCertFile string
-	ExtTLSConfig   *tls.Config
-
-	TpmHandleFile string
-	TpmHandle     uint32
-	TpmDevice     string
-	refreshMutex  sync.Mutex
+	TpmHandleFile      string
+	TpmHandle          uint32
+	TpmDevice          string
+	SignatureAlgorithm x509.SignatureAlgorithm
+	refreshMutex       sync.Mutex
 }
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
+
+	if conf.SignatureAlgorithm == x509.UnknownSignatureAlgorithm {
+		conf.SignatureAlgorithm = x509.SHA256WithRSA
+	}
+	if (conf.SignatureAlgorithm != x509.SHA256WithRSA) && (conf.SignatureAlgorithm != x509.SHA256WithRSAPSS) {
+		return TPM{}, fmt.Errorf("signatureALgorithm must be either x509.SHA256WithRSA or x509.SHA256WithRSAPSS")
+	}
 
 	var err error
 	rwc, err := tpm2.OpenTPM(conf.TpmDevice)
@@ -72,59 +74,7 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 		return TPM{}, fmt.Errorf("At most one of TpmHandle or TpmHandleFile must be specified")
 	}
 
-	if conf.ExtTLSConfig != nil {
-		if len(conf.ExtTLSConfig.Certificates) > 0 {
-			return TPM{}, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
-		}
-
-		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
-			return TPM{}, fmt.Errorf("CipherSuites value in ExtTLSConfig Ignored")
-		}
-	}
 	return *conf, nil
-}
-
-func (t TPM) TLSCertificate() tls.Certificate {
-
-	if t.PublicCertFile == "" {
-		log.Fatalf("Public X509 certificate not specified")
-	}
-
-	pubPEM, err := ioutil.ReadFile(t.PublicCertFile)
-	if err != nil {
-		log.Fatalf("Unable to read keys %v", err)
-	}
-	block, _ := pem.Decode([]byte(pubPEM))
-	if block == nil {
-		log.Fatalf("failed to parse PEM block containing the public key")
-	}
-	pub, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		log.Fatalf("failed to parse public key: " + err.Error())
-	}
-
-	x509Certificate = *pub
-	var privKey crypto.PrivateKey = t
-	return tls.Certificate{
-		PrivateKey:  privKey,
-		Leaf:        &x509Certificate,
-		Certificate: [][]byte{x509Certificate.Raw},
-	}
-}
-
-func (t TPM) TLSConfig() *tls.Config {
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{t.TLSCertificate()},
-
-		RootCAs:      t.ExtTLSConfig.RootCAs,
-		ClientCAs:    t.ExtTLSConfig.ClientCAs,
-		ClientAuth:   t.ExtTLSConfig.ClientAuth,
-		ServerName:   t.ExtTLSConfig.ServerName,
-		CipherSuites: t.ExtTLSConfig.CipherSuites,
-		MaxVersion:   t.ExtTLSConfig.MaxVersion,
-		MinVersion:   t.ExtTLSConfig.MinVersion,
-	}
 }
 
 func (t TPM) Public() crypto.PublicKey {
@@ -132,38 +82,37 @@ func (t TPM) Public() crypto.PublicKey {
 		t.refreshMutex.Lock()
 		defer t.refreshMutex.Unlock()
 
+		var err error
 		rwc, err := tpm2.OpenTPM(t.TpmDevice)
 		if err != nil {
-			return err
+			fmt.Printf(": Public: Unable to Open TPM: %v\n", err)
+			return nil
 		}
 		defer rwc.Close()
 
-		var handle tpmutil.Handle
-		//defer tpm2.FlushContext(rwc, handle)
-		if t.TpmHandleFile != "" {
-			log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
-			pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
-			if err != nil {
-				log.Fatalf("google: Unable to Read Public data from TPM: %v", err)
-			}
-			handle, err = tpm2.ContextLoad(rwc, pHBytes)
-			if err != nil {
-				return nil
-			}
-		} else {
-			handle = tpmutil.Handle(t.TpmHandle)
+		khBytes, err := ioutil.ReadFile(t.TpmHandleFile)
+		if err != nil {
+			fmt.Printf(": Public: ContextLoad read file for kh: %v", err)
+			return nil
+		}
+		kh, err := tpm2.ContextLoad(rwc, khBytes)
+		if err != nil {
+			fmt.Printf(": Public: ContextLoad read file for kh: %v", err)
+			return nil
+		}
+		defer tpm2.FlushContext(rwc, kh)
+		k, err := client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParams, kh)
+		if err != nil {
+			fmt.Printf(": Public: error loading CachedKey: %v", err)
+			return nil
 		}
 
-		pub, _, _, err := tpm2.ReadPublic(rwc, handle)
+		s, err := k.GetSigner()
 		if err != nil {
-			log.Fatalf("google: Unable to Read Public data from TPM: %v", err)
+			fmt.Printf(": Public: Error getting signer: %v", err)
+			return nil
 		}
-		pubKey, err := pub.Key()
-		if err != nil {
-			log.Fatalf("google: Unable to Read Public key from TPM: %v", err)
-		}
-		publicKey = pubKey.(*rsa.PublicKey)
-		tpm2.FlushContext(rwc, handle)
+		publicKey = s.Public()
 	}
 	return publicKey
 }
@@ -197,6 +146,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	if err != nil {
 		return []byte(""), fmt.Errorf("Couldnot get Signer: %v", err)
 	}
+
 	if _, ok := opts.(*rsa.PSSOptions); ok {
 		opts = &rsa.PSSOptions{
 			Hash:       crypto.SHA256,
@@ -204,6 +154,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		}
 	}
 	return s.Sign(rr, digest, opts)
+
 }
 
 func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
@@ -219,7 +170,6 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 	var handle tpmutil.Handle
 	defer tpm2.FlushContext(rwc, handle)
 	if t.TpmHandleFile != "" {
-		log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
 		pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
 		if err != nil {
 			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
