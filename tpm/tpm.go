@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -28,7 +29,7 @@ var (
 	clientAuth      *tls.ClientAuthType
 	rwc             io.ReadWriteCloser
 
-	unrestrictedKeyParams = tpm2.Public{
+	unrestrictedKeyParamsRSASSA = tpm2.Public{
 		Type:    tpm2.AlgRSA,
 		NameAlg: tpm2.AlgSHA256,
 		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
@@ -37,6 +38,21 @@ var (
 		RSAParameters: &tpm2.RSAParams{
 			Sign: &tpm2.SigScheme{
 				Alg:  tpm2.AlgRSASSA,
+				Hash: tpm2.AlgSHA256,
+			},
+			KeyBits: 2048,
+		},
+	}
+
+	unrestrictedKeyParamsPSS = tpm2.Public{
+		Type:    tpm2.AlgRSA,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
+			tpm2.FlagUserWithAuth | tpm2.FlagSign,
+		AuthPolicy: []byte{},
+		RSAParameters: &tpm2.RSAParams{
+			Sign: &tpm2.SigScheme{
+				Alg:  tpm2.AlgRSAPSS,
 				Hash: tpm2.AlgSHA256,
 			},
 			KeyBits: 2048,
@@ -52,6 +68,9 @@ type TPM struct {
 	TpmDevice          string
 	SignatureAlgorithm x509.SignatureAlgorithm
 	refreshMutex       sync.Mutex
+
+	PublicCertFile string
+	ExtTLSConfig   *tls.Config
 }
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
@@ -73,7 +92,15 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 	if conf.TpmHandleFile != "" && conf.TpmHandle != 0 {
 		return TPM{}, fmt.Errorf("At most one of TpmHandle or TpmHandleFile must be specified")
 	}
+	if conf.ExtTLSConfig != nil {
+		if len(conf.ExtTLSConfig.Certificates) > 0 {
+			return TPM{}, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
+		}
 
+		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
+			return TPM{}, fmt.Errorf("CipherSuites value in ExtTLSConfig Ignored")
+		}
+	}
 	return *conf, nil
 }
 
@@ -101,10 +128,19 @@ func (t TPM) Public() crypto.PublicKey {
 			return nil
 		}
 		defer tpm2.FlushContext(rwc, kh)
-		k, err := client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParams, kh)
-		if err != nil {
-			fmt.Printf(": Public: error loading CachedKey: %v", err)
-			return nil
+		var k *client.Key
+		if t.SignatureAlgorithm == x509.SHA256WithRSA {
+			k, err = client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParamsRSASSA, kh)
+			if err != nil {
+				fmt.Printf(": Public: error loading CachedKey: %v", err)
+				return nil
+			}
+		} else {
+			k, err = client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParamsPSS, kh)
+			if err != nil {
+				fmt.Printf(": Public: error loading CachedKey: %v", err)
+				return nil
+			}
 		}
 
 		s, err := k.GetSigner()
@@ -137,9 +173,17 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		return []byte(""), fmt.Errorf("ContextLoad failed for kh: %v", err)
 	}
 	defer tpm2.FlushContext(rwc, kh)
-	k, err := client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParams, kh)
-	if err != nil {
-		return []byte(""), fmt.Errorf("Couldnot load CachedKey: %v", err)
+	var k *client.Key
+	if t.SignatureAlgorithm == x509.SHA256WithRSA {
+		k, err = client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParamsRSASSA, kh)
+		if err != nil {
+			return []byte(""), fmt.Errorf(": Public: error loading CachedKey: %v", err)
+		}
+	} else {
+		k, err = client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParamsPSS, kh)
+		if err != nil {
+			return []byte(""), fmt.Errorf(": Public: error loading CachedKey: %v", err)
+		}
 	}
 
 	s, err := k.GetSigner()
@@ -155,6 +199,53 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	}
 	return s.Sign(rr, digest, opts)
 
+}
+
+func (t TPM) TLSCertificate() tls.Certificate {
+
+	if t.PublicCertFile == "" {
+		fmt.Printf("Public X509 certificate not specified")
+		return tls.Certificate{}
+	}
+
+	pubPEM, err := ioutil.ReadFile(t.PublicCertFile)
+	if err != nil {
+		fmt.Printf("Unable to read keys %v", err)
+		return tls.Certificate{}
+	}
+	block, _ := pem.Decode([]byte(pubPEM))
+	if block == nil {
+		fmt.Printf("failed to parse PEM block containing the public key")
+		return tls.Certificate{}
+	}
+	pub, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		fmt.Printf("failed to parse public key: " + err.Error())
+		return tls.Certificate{}
+	}
+
+	x509Certificate = *pub
+	var privKey crypto.PrivateKey = t
+	return tls.Certificate{
+		PrivateKey:  privKey,
+		Leaf:        &x509Certificate,
+		Certificate: [][]byte{x509Certificate.Raw},
+	}
+}
+
+func (t TPM) TLSConfig() *tls.Config {
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{t.TLSCertificate()},
+
+		RootCAs:      t.ExtTLSConfig.RootCAs,
+		ClientCAs:    t.ExtTLSConfig.ClientCAs,
+		ClientAuth:   t.ExtTLSConfig.ClientAuth,
+		ServerName:   t.ExtTLSConfig.ServerName,
+		CipherSuites: t.ExtTLSConfig.CipherSuites,
+		MaxVersion:   t.ExtTLSConfig.MaxVersion,
+		MinVersion:   t.ExtTLSConfig.MinVersion,
+	}
 }
 
 func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
