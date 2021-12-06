@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/tpmutil"
 )
 
 const ()
@@ -89,7 +88,7 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 	}
 	defer rwc.Close()
 
-	if conf.TpmHandleFile != "" && conf.TpmHandle != 0 {
+	if conf.TpmHandleFile == "" && conf.TpmHandle != 0 {
 		return TPM{}, fmt.Errorf("At most one of TpmHandle or TpmHandleFile must be specified")
 	}
 	if conf.ExtTLSConfig != nil {
@@ -246,42 +245,6 @@ func (t TPM) TLSConfig() *tls.Config {
 		MaxVersion:   t.ExtTLSConfig.MaxVersion,
 		MinVersion:   t.ExtTLSConfig.MinVersion,
 	}
-}
-
-func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
-	t.refreshMutex.Lock()
-	defer t.refreshMutex.Unlock()
-
-	rwc, err := tpm2.OpenTPM(t.TpmDevice)
-	if err != nil {
-		return []byte(""), err
-	}
-	defer rwc.Close()
-
-	var handle tpmutil.Handle
-	defer tpm2.FlushContext(rwc, handle)
-	if t.TpmHandleFile != "" {
-		pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
-		if err != nil {
-			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
-		}
-		handle, err = tpm2.ContextLoad(rwc, pHBytes)
-		if err != nil {
-			return []byte(""), fmt.Errorf("     ContextLoad failed for importedKey: %v", err)
-		}
-	} else {
-		handle = tpmutil.Handle(t.TpmHandle)
-	}
-
-	dec, err := tpm2.RSADecrypt(rwc, handle, "", msg, &tpm2.AsymScheme{
-		Alg:  tpm2.AlgOAEP,
-		Hash: tpm2.AlgSHA256,
-	}, "")
-	if err != nil {
-		return nil, fmt.Errorf("google: Unable to Decrypt with TPM: %v", err)
-	}
-	tpm2.FlushContext(rwc, handle)
-	return dec, nil
 }
 
 func (t TPM) Close() error {

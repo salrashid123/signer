@@ -7,7 +7,6 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -29,7 +28,6 @@ var (
 
 type PEM struct {
 	crypto.Signer
-	crypto.Decrypter
 
 	ExtTLSConfig *tls.Config
 
@@ -119,17 +117,6 @@ func (t PEM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 		}
 	}
 	return signature, nil
-}
-
-func (t PEM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
-	t.refreshMutex.Lock()
-	defer t.refreshMutex.Unlock()
-	hash := sha256.New()
-	decryptedData, decryptErr := rsa.DecryptOAEP(hash, rand, t.privateKey, msg, nil)
-	if decryptErr != nil {
-		return nil, fmt.Errorf("Decrypt data error")
-	}
-	return decryptedData, nil
 }
 
 func (t PEM) TLSCertificate() tls.Certificate {

@@ -12,15 +12,15 @@ import (
 	"io/ioutil"
 	"log"
 
-	sal "github.com/salrashid123/signer/pem"
+	salpem "github.com/salrashid123/signer/pem"
 )
 
 var ()
 
 func main() {
 
-	r, err := sal.NewPEMCrypto(&sal.PEM{
-		PrivatePEMFile: "client.key",
+	r, err := salpem.NewPEMCrypto(&salpem.PEM{
+		PrivatePEMFile: "certs/client.key",
 		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
 	})
 	if err != nil {
@@ -28,7 +28,10 @@ func main() {
 		return
 	}
 
-	b := []byte("foo")
+	stringToSign := "foo"
+	fmt.Printf("Data to sign %s\n", stringToSign)
+
+	b := []byte(stringToSign)
 
 	h := sha256.New()
 	h.Write(b)
@@ -39,9 +42,9 @@ func main() {
 		log.Println(err)
 		return
 	}
-	fmt.Printf("%s\n", base64.StdEncoding.EncodeToString(s))
+	fmt.Printf("Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
 
-	rc, err := ioutil.ReadFile("client.crt")
+	rc, err := ioutil.ReadFile("certs/client.crt")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -66,6 +69,7 @@ func main() {
 		fmt.Println(err)
 		return
 	}
+	fmt.Printf("Signed String verified\n")
 
 	// var ropts rsa.PSSOptions
 	// ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
@@ -77,21 +81,5 @@ func main() {
 	// }
 
 	/// *********************************************************
-
-	hash := sha256.New()
-	ciphertext, err := rsa.EncryptOAEP(hash, rand.Reader, rsaPubKey, b, nil)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Printf("CipherText %s\n", base64.StdEncoding.EncodeToString(ciphertext))
-
-	plaintext, err := r.Decrypt(rand.Reader, ciphertext, nil)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	fmt.Println(string(plaintext))
 
 }

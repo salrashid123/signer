@@ -33,8 +33,7 @@ var (
 )
 
 type KMS struct {
-	crypto.Signer    // https://golang.org/pkg/crypto/#Signer
-	crypto.Decrypter // https://golang.org/pkg/crypto/#Decrypter
+	crypto.Signer // https://golang.org/pkg/crypto/#Signer
 
 	PublicKeyFile string
 	ExtTLSConfig  *tls.Config
@@ -61,11 +60,11 @@ func NewKMSCrypto(conf *KMS) (KMS, error) {
 	}
 	if conf.ExtTLSConfig != nil {
 		if len(conf.ExtTLSConfig.Certificates) > 0 {
-			return KMS{}, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
+			return KMS{}, fmt.Errorf("certificates value in ExtTLSConfig Ignored")
 		}
 
 		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
-			return KMS{}, fmt.Errorf("CipherSuites value in ExtTLSConfig Ignored")
+			return KMS{}, fmt.Errorf("cipherSuites value in ExtTLSConfig Ignored")
 		}
 	}
 	return *conf, nil
@@ -81,6 +80,7 @@ func (t KMS) Public() crypto.PublicKey {
 			fmt.Printf("Error getting kms client %v", err)
 			return nil
 		}
+		defer kmsClient.Close()
 
 		dresp, err := kmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: parentName})
 		if err != nil {
@@ -139,12 +139,8 @@ func (t KMS) TLSConfig() *tls.Config {
 		ClientAuth:   t.ExtTLSConfig.ClientAuth,
 		ServerName:   t.ExtTLSConfig.ServerName,
 
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
-		},
-		MaxVersion: tls.VersionTLS12,
+		CipherSuites: t.ExtTLSConfig.CipherSuites,
+		MaxVersion:   t.ExtTLSConfig.MaxVersion,
 	}
 }
 
@@ -160,7 +156,14 @@ func (t KMS) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 		fmt.Printf("Error getting kms client %v", err)
 		return nil, err
 	}
+	defer kmsClient.Close()
 
+	pss, ok := opts.(*rsa.PSSOptions)
+	if ok {
+		if pss.SaltLength != rsa.PSSSaltLengthEqualsHash {
+			fmt.Println("salkms: PSS salt length will automatically get set to rsa.PSSSaltLengthEqualsHash ")
+		}
+	}
 	req := &kmspb.AsymmetricSignRequest{
 		Name: parentName,
 		Digest: &kmspb.Digest{
@@ -176,29 +179,4 @@ func (t KMS) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	}
 	return dresp.Signature, nil
 
-}
-
-func (t KMS) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
-	refreshMutex.Lock()
-	defer refreshMutex.Unlock()
-
-	ctx := context.Background()
-	parentName := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%s", t.ProjectId, t.LocationId, t.KeyRing, t.Key, t.KeyVersion)
-
-	kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
-	if err != nil {
-		fmt.Printf("Error getting kms client %v", err)
-		return nil, err
-	}
-
-	dresp, err := kmsClient.AsymmetricDecrypt(ctx, &kmspb.AsymmetricDecryptRequest{
-		Name:       parentName,
-		Ciphertext: msg,
-	})
-	if err != nil {
-		fmt.Printf("Error decrypting with kms client %v", err)
-		return nil, err
-	}
-
-	return dresp.Plaintext, nil
 }

@@ -59,11 +59,12 @@ func main() {
 	// })
 
 	// r, err := salkms.NewKMSCrypto(&salkms.KMS{
-	// 	ProjectId:  "mineral-minutia-820",
-	// 	LocationId: "us-central1",
-	// 	KeyRing:    "mykeyring",
-	// 	Key:        "rsign",
-	// 	KeyVersion: "1",
+	// 	ProjectId:          "mineral-minutia-820",
+	// 	LocationId:         "us-central1",
+	// 	KeyRing:            "kr",
+	// 	Key:                "s",
+	// 	KeyVersion:         "1",
+	// 	SignatureAlgorithm: x509.SHA256WithRSA,
 	// })
 
 	r, err := salpem.NewPEMCrypto(&salpem.PEM{

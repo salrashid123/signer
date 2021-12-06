@@ -1,27 +1,15 @@
-#### crypto.Signer, crypto.Decrypter implementations
+#### crypto.Signer, implementations for Google Cloud KMS and Trusted Platform Modules
 
 for private keys based on 
 
 * Google Cloud KMS 
 * Trusted Platform Module
-* HashiCorp Vault
-* PEM key files
 
-- `kms/`:  Sample that implements `crypto.Signer` and `crypto.Decrypter` using Google Cloud KMS
-- `vault/`: Sample that implements `crypto.Signer` and `crypto.Decrypter` using the [PKI Secret Engine for HashiCorp Vault](https://www.vaultproject.io/docs/secrets/pki/index.html)
-- `tpm/`:  Sample that implements `crypto.Signer` and `crypto.Decrypter` using `go-tpm` library for Trusted Platform Module
-```
-    tpm2_createprimary -C e -g sha256 -G rsa -c primary.ctx
-    tpm2_create -G rsa -u key.pub -r key.priv -C primary.ctx
-    tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-    tpm2_readpublic -c key.ctx -f PEM -o public.pem
-    tpm2_evictcontrol -C o -c key.ctx 0x81010002 
-```
-  When using the TPM for mTLS operations, make sure the Signature Hash thats received from the server uses `sha256`.  I've noticed that when TLSConfig is used against `nginx`, the Signing will fail as the Hash received with `crypto.SignerOpts` uses SHA512.
-- `pem/`:  Sample that implements `crypto.Signer` and `crypto.Decrypter` using regular pem and x509 certificates. They key file this mode accepts is RSA private key.
+- `kms/`:  Sample that implements `crypto.Signer` using Google Cloud KMS
+- `tpm/`:  Sample that implements `crypto.Signer`  using `go-tpm` library for Trusted Platform Module
+- `pem/`:  Sample that implements `crypto.Signer`  They key file this mode accepts is RSA private key. THis is nothing new..you can ofcourse do this absolutely without this!...i just have it here as an example
 - `certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 - `csrgen/`:  Library that generates a CSR using the key in KMS or TPM 
-
 
 Also see:
 
@@ -42,7 +30,7 @@ see `example/mtls` folder
 
 ### Sign/Verify PSS
 
-see `example/sign_decrypt` folder
+see `example/sign_verify` folder
 
 
 ### Usage: Generate self-signed certificate
