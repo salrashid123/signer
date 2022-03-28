@@ -28,7 +28,7 @@ func main() {
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice:     "/dev/tpm0",
 		TpmHandleFile: "/tmp/key.bin",
-		TpmHandle:     0x81010002,
+		//TpmHandle:     0x81010002,
 	})
 	if err != nil {
 		fmt.Println(err)
