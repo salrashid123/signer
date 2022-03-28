@@ -17,8 +17,8 @@ require (
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.6 // indirect
-	github.com/google/go-tpm v0.3.3-0.20210409082102-d3310770bfec // indirect
-	github.com/google/go-tpm-tools v0.3.0-alpha7.0.20210712215558-1689caf35bff // indirect
+	github.com/google/go-tpm v0.3.3 // indirect
+	github.com/google/go-tpm-tools v0.3.0 // indirect
 	github.com/googleapis/gax-go/v2 v2.1.0 // indirect
 	go.opencensus.io v0.23.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20210819190943-2bc19b11175f // indirect
