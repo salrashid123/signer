@@ -7,16 +7,15 @@ for private keys based on
 
 - `kms/`:  Sample that implements `crypto.Signer` using Google Cloud KMS
 - `tpm/`:  Sample that implements `crypto.Signer`  using `go-tpm` library for Trusted Platform Module
+- `vault/`:  `crypto.Signer` for use with [Hashicorp Vault PKI Secrets](https://www.vaultproject.io/docs/secrets/pki)
 - `pem/`:  Sample that implements `crypto.Signer`  They key file this mode accepts is RSA private key. THis is nothing new..you can ofcourse do this absolutely without this!...i just have it here as an example
 - `certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 - `csrgen/`:  Library that generates a CSR using the key in KMS or TPM 
 
 Also see:
 
-- [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
 - [GCS signedURLs and GCP Authentication with Trusted Platform Module](https://github.com/salrashid123/gcs_tpm)
 
->> IMPORTANT: you must use at **MOST** go1.13 since versions beyond that uses RSA-PSS (ref [32425](https://github.com/golang/go/issues/32425)) and atleast KMS only support RSA
 
 ### Usage Signer
 
@@ -27,6 +26,10 @@ Initialize a signer and directly use `.sign()` as shown in this sample for GCS S
 ### Usage TLS
 
 see `example/mtls` folder
+
+* for vault see [mTLS using Hashcorp Vault's PKI Secrets](https://github.com/salrashid123/vault_pki_mtls))
+* for tpm see [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
+* for kms see [mTLS with Google Cloud KMS](https://github.com/salrashid123/kms_golang_signer)
 
 ### Sign/Verify PSS
 
