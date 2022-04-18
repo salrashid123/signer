@@ -77,13 +77,11 @@ func main() {
 	// 	KeyVersion:         "1",
 	// 	SignatureAlgorithm: x509.SHA256WithRSA,
 	// })
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
 
 	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PrivatePEMFile: "../example/server.key",
+		PrivatePEMFile: "../example/certs/server.key",
 	})
+
 	if err != nil {
 		log.Fatal(err)
 	}
