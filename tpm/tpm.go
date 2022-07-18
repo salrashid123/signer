@@ -16,7 +16,6 @@ import (
 	"io/ioutil"
 	"sync"
 
-	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
@@ -26,38 +25,12 @@ const ()
 var (
 	x509Certificate x509.Certificate
 	publicKey       crypto.PublicKey
-	clientCAs       *x509.CertPool
-	clientAuth      *tls.ClientAuthType
-	rwc             io.ReadWriteCloser
 
-	unrestrictedKeyParamsRSASSA = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagSign,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSASSA,
-				Hash: tpm2.AlgSHA256,
-			},
-			KeyBits: 2048,
-		},
-	}
-
-	unrestrictedKeyParamsPSS = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagSign,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSAPSS,
-				Hash: tpm2.AlgSHA256,
-			},
-			KeyBits: 2048,
-		},
+	handleNames = map[string][]tpm2.HandleType{
+		"all":       []tpm2.HandleType{tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
+		"loaded":    []tpm2.HandleType{tpm2.HandleTypeLoadedSession},
+		"saved":     []tpm2.HandleType{tpm2.HandleTypeSavedSession},
+		"transient": []tpm2.HandleType{tpm2.HandleTypeTransient},
 	}
 )
 
@@ -69,9 +42,8 @@ type TPM struct {
 	TpmDevice          string
 	SignatureAlgorithm x509.SignatureAlgorithm
 	refreshMutex       sync.Mutex
-
-	PublicCertFile string
-	ExtTLSConfig   *tls.Config
+	PublicCertFile     string
+	ExtTLSConfig       *tls.Config
 }
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
@@ -89,6 +61,18 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 		return TPM{}, fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
 	}
 	defer rwc.Close()
+
+	// for _, handleType := range handleNames["all"] {
+	// 	handles, err := client.Handles(rwc, handleType)
+	// 	if err != nil {
+	// 		return TPM{}, fmt.Errorf("error getting handles")
+	// 	}
+	// 	for _, handle := range handles {
+	// 		if err = tpm2.FlushContext(rwc, handle); err != nil {
+	// 			return TPM{}, fmt.Errorf("error flushing 0x%x: %v", handle, err)
+	// 		}
+	// 	}
+	// }
 
 	if conf.TpmHandleFile == "" && conf.TpmHandle == 0 {
 		return TPM{}, fmt.Errorf("at most one of TpmHandle or TpmHandleFile must be specified")
@@ -117,6 +101,7 @@ func (t TPM) Public() crypto.PublicKey {
 			fmt.Printf(": Public: Unable to Open TPM: %v\n", err)
 			return nil
 		}
+		defer tpm2.FlushContext(rwc, kh)
 		defer rwc.Close()
 
 		if t.TpmHandleFile != "" {
@@ -137,28 +122,19 @@ func (t TPM) Public() crypto.PublicKey {
 			return errors.New("public: both tpmHandlefile and tpmhandle are null")
 		}
 
-		defer tpm2.FlushContext(rwc, kh)
-		var k *client.Key
-		if t.SignatureAlgorithm == x509.SHA256WithRSA {
-			k, err = client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParamsRSASSA, kh)
-			if err != nil {
-				fmt.Printf("public: error loading CachedKey: %v\n", err)
-				return nil
-			}
-		} else {
-			k, err = client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParamsPSS, kh)
-			if err != nil {
-				fmt.Printf("public: error loading CachedKey: %v\n", err)
-				return nil
-			}
-		}
-
-		s, err := k.GetSigner()
+		pub, _, _, err := tpm2.ReadPublic(rwc, kh)
 		if err != nil {
-			fmt.Printf("public: Error getting signer: %v", err)
-			return nil
+			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
+			return errors.New(fmt.Sprintf("fmt: Unable to Read Public data from TPM: %v", err))
 		}
-		publicKey = s.Public()
+		tpm2.FlushContext(rwc, kh)
+
+		pubKey, err := pub.Key()
+		if err != nil {
+			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
+			return errors.New(fmt.Sprintf("fmt: Unable to Read Public data from TPM: %v", err))
+		}
+		publicKey = pubKey.(*rsa.PublicKey)
 	}
 	return publicKey
 }
@@ -173,6 +149,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	if err != nil {
 		return []byte(""), fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
 	}
+	defer tpm2.FlushContext(rwc, kh)
 	defer rwc.Close()
 
 	if t.TpmHandleFile != "" {
@@ -188,36 +165,27 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		}
 	} else if t.TpmHandle != 0 {
 		kh = tpmutil.Handle(t.TpmHandle)
-	} else {
-		return []byte(""), fmt.Errorf("sign: both tpmHandlefile and tpmhandle are null")
 	}
+	var signed *tpm2.Signature
 
-	defer tpm2.FlushContext(rwc, kh)
-	var k *client.Key
 	if t.SignatureAlgorithm == x509.SHA256WithRSA {
-		k, err = client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParamsRSASSA, kh)
-		if err != nil {
-			return []byte(""), fmt.Errorf("sign: error loading CachedKey: %v", err)
-		}
+		signed, err = tpm2.Sign(rwc, kh, "", digest[:], nil, &tpm2.SigScheme{
+			Alg:  tpm2.AlgRSASSA,
+			Hash: tpm2.AlgSHA256,
+		})
 	} else {
-		k, err = client.NewCachedKey(rwc, tpm2.HandleEndorsement, unrestrictedKeyParamsPSS, kh)
-		if err != nil {
-			return []byte(""), fmt.Errorf("sign: error loading CachedKey: %v", err)
-		}
+		signed, err = tpm2.Sign(rwc, kh, "", digest[:], nil, &tpm2.SigScheme{
+			Alg:  tpm2.AlgRSAPSS,
+			Hash: tpm2.AlgSHA256,
+		})
 	}
-
-	s, err := k.GetSigner()
+	tpm2.FlushContext(rwc, kh)
 	if err != nil {
-		return []byte(""), fmt.Errorf("sign: get Signer: %v", err)
+		fmt.Printf("Failed to sign: %v", err)
+		return []byte(""), fmt.Errorf("sign:  Failed to sign %v", err)
 	}
 
-	if _, ok := opts.(*rsa.PSSOptions); ok {
-		opts = &rsa.PSSOptions{
-			Hash:       crypto.SHA256,
-			SaltLength: rsa.PSSSaltLengthAuto,
-		}
-	}
-	return s.Sign(rr, digest, opts)
+	return signed.RSA.Signature, nil
 
 }
 
@@ -266,8 +234,4 @@ func (t TPM) TLSConfig() *tls.Config {
 		MaxVersion:   t.ExtTLSConfig.MaxVersion,
 		MinVersion:   t.ExtTLSConfig.MinVersion,
 	}
-}
-
-func (t TPM) Close() error {
-	return rwc.Close()
 }

@@ -6,8 +6,6 @@ require (
 	github.com/salrashid123/signer/kms v0.0.0
 	github.com/salrashid123/signer/pem v0.0.0
 	github.com/salrashid123/signer/tpm v0.0.0
-	// github.com/salrashid123/signer/kms v0.0.0
-	// github.com/salrashid123/signer/pem v0.0.0
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f // indirect
 )
 

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -28,6 +29,9 @@ func main() {
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice:     "/dev/tpm0",
 		TpmHandleFile: "/tmp/key.bin",
+		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
+		SignatureAlgorithm: x509.SHA256WithRSA,
+
 		//TpmHandle:     0x81010002,
 	})
 	if err != nil {
@@ -47,6 +51,16 @@ func main() {
 		fmt.Println(err)
 		return
 	}
+
+	// opts := &rsa.PSSOptions{
+	// 	Hash:       crypto.SHA256,
+	// 	SaltLength: rsa.PSSSaltLengthAuto,
+	// }
+	// err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest, s, opts)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	return
+	// }
 
 	err = rsa.VerifyPKCS1v15(rsaPubKey, crypto.SHA256, digest, s)
 	if err != nil {

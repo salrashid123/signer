@@ -20,7 +20,7 @@ var ()
 func main() {
 
 	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PrivatePEMFile: "certs/client.key",
+		PrivatePEMFile: "../certs/client_rsa.key",
 		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
 	})
 	if err != nil {
@@ -44,7 +44,7 @@ func main() {
 	}
 	fmt.Printf("Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
 
-	rc, err := ioutil.ReadFile("certs/client.crt")
+	rc, err := ioutil.ReadFile("../certs/client.crt")
 	if err != nil {
 		fmt.Println(err)
 		return
