@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -27,12 +26,12 @@ func main() {
 	digest := h.Sum(nil)
 
 	r, err := salkms.NewKMSCrypto(&salkms.KMS{
-		ProjectId:          "mineral-minutia-820",
-		LocationId:         "us-central1",
-		KeyRing:            "kr",
-		Key:                "s",
-		KeyVersion:         "1",
-		SignatureAlgorithm: x509.SHA256WithRSA,
+		ProjectId:  "mineral-minutia-820",
+		LocationId: "us-central1",
+		KeyRing:    "kr",
+		Key:        "s",
+		KeyVersion: "1",
+		// SignatureAlgorithm: x509.SHA256WithRSAPSS,
 	})
 	if err != nil {
 		fmt.Println(err)
@@ -61,37 +60,8 @@ func main() {
 
 	// PSS ******************
 
-	// r2, err := salkms.NewKMSCrypto(&salkms.KMS{
-	// 	ProjectId:          "mineral-minutia-820",
-	// 	LocationId:         "us-central1",
-	// 	KeyRing:            "kr",
-	// 	Key:                "s2",
-	// 	KeyVersion:         "1",
-	// 	SignatureAlgorithm: x509.SHA256WithRSAPSS,
-	// })
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return
-	// }
-
-	// s2, err := r2.Sign(rand.Reader, digest, &rsa.PSSOptions{
-	// 	SaltLength: rsa.PSSSaltLengthEqualsHash,
-	// 	Hash:       crypto.SHA256,
-	// })
-	// if err != nil {
-	// 	log.Println(err)
-	// 	return
-	// }
-	// fmt.Printf("PSS Signed String: %s\n", base64.StdEncoding.EncodeToString(s2))
-
-	// rsaPubKey2, ok := r2.Public().(*rsa.PublicKey)
-	// if !ok {
-	// 	fmt.Println(err)
-	// 	return
-	// }
-
 	// // // For PSS, the salt length used is equal to the length of digest algorithm.
-	// err = rsa.VerifyPSS(rsaPubKey2, crypto.SHA256, digest[:], s2, &rsa.PSSOptions{
+	// err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest[:], s2, &rsa.PSSOptions{
 	// 	SaltLength: rsa.PSSSaltLengthEqualsHash,
 	// 	Hash:       crypto.SHA256,
 	// })

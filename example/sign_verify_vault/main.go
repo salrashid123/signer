@@ -5,23 +5,24 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"log"
 
-	salpem "github.com/salrashid123/signer/pem"
+	salvault "github.com/salrashid123/signer/vault"
 )
 
 var ()
 
 func main() {
 
-	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PrivatePEMFile: "certs/client_rsa.key",
-		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
+	r, err := salvault.NewVaultCrypto(&salvault.Vault{
+		CertCN:      "client.domain.com",
+		VaultToken:  "s.Mlu0TVNkfYh3GkE51r1i0kcv",
+		VaultPath:   "pki/issue/domain-dot-com",
+		VaultCAcert: "path/to/certs/ca/tls-ca.crt",
+		VaultAddr:   "https://vault.domain.com:8200",
+		// SignatureAlgorithm: x509.SHA256WithRSAPSS,
 	})
 	if err != nil {
 		fmt.Println(err)
@@ -44,27 +45,7 @@ func main() {
 	}
 	fmt.Printf("Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
 
-	rc, err := ioutil.ReadFile("certs/client.crt")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	block, _ := pem.Decode(rc)
-
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	rsaPubKey, ok := cert.PublicKey.(*rsa.PublicKey)
-	if !ok {
-		fmt.Println(err)
-		return
-	}
-
-	err = rsa.VerifyPKCS1v15(rsaPubKey, crypto.SHA256, digest, s)
+	err = rsa.VerifyPKCS1v15(r.Public().(*rsa.PublicKey), crypto.SHA256, digest, s)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -74,7 +55,7 @@ func main() {
 	// var ropts rsa.PSSOptions
 	// ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
 
-	// err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest, s, &ropts)
+	// err = rsa.VerifyPSS(r.Public().(*rsa.PublicKey), crypto.SHA256, digest, s, &ropts)
 	// if err != nil {
 	// 	fmt.Println(err)
 	// 	return
