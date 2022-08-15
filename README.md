@@ -89,13 +89,30 @@ const (
 var ()
 
 func main() {
+
+	// demo signer
 	t, err := salpem.NewPEMCrypto(&salpem.PEM{
 		PrivatePEMFile: "server.key",
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
+
+	// // rsa.PrivateKey also implements a crypto.Signer
+	// // https://pkg.go.dev/crypto/rsa#PrivateKey.Sign
+	// privatePEM, err := ioutil.ReadFile("server.key")
+	// if err != nil {
+	// 	fmt.Printf("error getting signer %v", err)
+	// 	os.Exit(0)
+	// }
+	// rblock, _ := pem.Decode(privatePEM)
+	// if rblock == nil {
+	// 	fmt.Printf("error getting signer %v", err)
+	// 	os.Exit(0)
+	// }
+	// t, err := x509.ParsePKCS1PrivateKey(rblock.Bytes)
+	// if err != nil {
+	// 	fmt.Printf("error getting signer %v", err)
+	// 	os.Exit(0)
+	// }
 
 	var notBefore time.Time
 	notBefore = time.Now()
