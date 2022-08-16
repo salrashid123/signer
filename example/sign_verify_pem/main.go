@@ -5,13 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"log"
 
+	//salpem "github.com/salrashid123/signer/pem"
 	salpem "github.com/salrashid123/signer/pem"
 )
 
@@ -37,10 +35,6 @@ func main() {
 	// 	os.Exit(0)
 	// }
 	// r, err := x509.ParsePKCS1PrivateKey(rblock.Bytes)
-	// if err != nil {
-	// 	fmt.Printf("error getting signer %v", err)
-	// 	os.Exit(0)
-	// }
 
 	if err != nil {
 		fmt.Println(err)
@@ -63,27 +57,28 @@ func main() {
 	}
 	fmt.Printf("Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
 
-	rc, err := ioutil.ReadFile("certs/client.crt")
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	// rc, err := ioutil.ReadFile("certs/client.crt")
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	return
+	// }
 
-	block, _ := pem.Decode(rc)
+	// block, _ := pem.Decode(rc)
 
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	// cert, err := x509.ParseCertificate(block.Bytes)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	return
+	// }
 
-	rsaPubKey, ok := cert.PublicKey.(*rsa.PublicKey)
-	if !ok {
-		fmt.Println(err)
-		return
-	}
+	// rsaPubKey, ok := cert.PublicKey.(*rsa.PublicKey)
+	// if !ok {
+	// 	fmt.Println(err)
+	// 	return
+	// }
 
-	err = rsa.VerifyPKCS1v15(rsaPubKey, crypto.SHA256, digest, s)
+	//err = rsa.VerifyPKCS1v15(rsaPubKey, crypto.SHA256, digest, s)
+	err = rsa.VerifyPKCS1v15(r.Public().(*rsa.PublicKey), crypto.SHA256, digest, s)
 	if err != nil {
 		fmt.Println(err)
 		return

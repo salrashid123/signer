@@ -22,22 +22,19 @@ import (
 )
 
 /*
-
 Utility function that will generate generates a CSR using private keys embedded in either a TPM or KMS system.
 
 Edit the Subject/CN values as needed as well as KeyUsage or with defaults
 
 go run csrgen.go -cn server.domain.com
 
-
 Note: x509 certificates associated with a google cloud service account have the following specifications:
 
 ref: Golang to generate and sign a certificate using a CA and to also sign a CSR
-     https://gist.github.com/salrashid123/1fd267cf213c1a1fe9e6c35c78b47e83
+
+	https://gist.github.com/salrashid123/1fd267cf213c1a1fe9e6c35c78b47e83
 
 // openssl rsa -in server_key.pem -pubout > server_rsa.pem
-
-
 */
 const ()
 
@@ -68,7 +65,7 @@ func main() {
 	// })
 
 	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PrivatePEMFile: "../example/certs/server.key",
+		PrivatePEMFile: "../example/certs/client_rsa.key",
 	})
 	if err != nil {
 		log.Fatal(err)

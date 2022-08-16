@@ -23,24 +23,22 @@ import (
 )
 
 /*
-
 Utility function that will generate an x509 certificate using private keys embedded in either a TPM or KMS system.
 
 Edit the Subject/CN values as needed as well as KeyUsage or with defaults
 
 go run certgen.go -cn server.domain.com
 
-
 Note: x509 certificates associated with a google cloud service account have the following specifications:
 
 Issuer: CN = YOURServiceAccountName@PROJECT_ID.iam.gserviceaccount.com
 Subject: CN = YOURServiceAccountName@PROJECT_ID.iam.gserviceaccount.com
 X509v3 extensions:
-    X509v3 Key Usage: critical
-        Digital Signature
-    X509v3 Extended Key Usage: critical
-		TLS Web Client Authentication
 
+	    X509v3 Key Usage: critical
+	        Digital Signature
+	    X509v3 Extended Key Usage: critical
+			TLS Web Client Authentication
 
 Note: if you use openssl TPM2-TSS engine, you can generate the key on the TPM and use openssl to generate the x509 cert
 
@@ -48,7 +46,6 @@ $ tpm2tss-genkey -a rsa private.tss
 $ openssl req -new -x509 -engine tpm2tss -key private.tss -keyform engine -out public.crt  -subj "/CN=example.com/"
 $ openssl x509 -pubkey -noout -in public.crt  > public.pem
 $ openssl x509 -in public.crt -text -noout
-
 */
 const ()
 
@@ -79,7 +76,7 @@ func main() {
 	// })
 
 	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PrivatePEMFile: "../example/certs/server.key",
+		PrivatePEMFile: "../example/certs/client_rsa.key",
 	})
 
 	if err != nil {
