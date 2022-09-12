@@ -16,7 +16,11 @@ gcloud kms keys create s --keyring=kr --purpose=asymmetric-signing --location=us
 ### TPM
 
 
-example usage of TPM2_TOOLS to import an external RSA key and seal it to handle
+example usage generates a new TPM unrestricted RSA key and sign,verify some data.
+
+you can also use `TPM2_TOOLS` to import an external RSA key and seal it to handle
+
+if you want to generate a key with `tpm2_tools` and make it persistent, 
 
 ```bash
 tpm2_createprimary -C o -c primary.ctx

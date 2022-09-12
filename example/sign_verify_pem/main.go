@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -18,8 +19,8 @@ var ()
 func main() {
 
 	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PrivatePEMFile: "certs/client_rsa.key",
-		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
+		PrivatePEMFile:     "certs/client_rsa.key",
+		SignatureAlgorithm: x509.SHA256WithRSAPSS,
 	})
 
 	// // rsa.PrivateKey also implements a crypto.Signer
@@ -78,22 +79,22 @@ func main() {
 	// }
 
 	//err = rsa.VerifyPKCS1v15(rsaPubKey, crypto.SHA256, digest, s)
-	err = rsa.VerifyPKCS1v15(r.Public().(*rsa.PublicKey), crypto.SHA256, digest, s)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Printf("Signed String verified\n")
-
-	// var ropts rsa.PSSOptions
-	// ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
-
-	// err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest, s, &ropts)
+	// err = rsa.VerifyPKCS1v15(r.Public().(*rsa.PublicKey), crypto.SHA256, digest, s)
 	// if err != nil {
 	// 	fmt.Println(err)
 	// 	return
 	// }
 
+	var ropts rsa.PSSOptions
+	ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
+
+	err = rsa.VerifyPSS(r.Public().(*rsa.PublicKey), crypto.SHA256, digest, s, &ropts)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	/// *********************************************************
 
+	fmt.Printf("Signed String verified\n")
 }
