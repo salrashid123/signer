@@ -33,7 +33,7 @@ see `example/mtls` folder
 
 #### Vault's PKI secrets engine vs Trasnit RSA
 
-This repo previously used Vault's PKI engine and now uses the stand-alone Transit RSA keys.  If the PKI engine, use prior commit [c701f97c4acf46096c70c31c4f027ffb7dc20915](https://github.com/salrashid123/signer/commit/c701f97c4acf46096c70c31c4f027ffb7dc20915) and import `github.com/salrashid123/signer/vault v0.0.0-20220411105052-0b6f54ba3528`. See [mTLS using Hashcorp Vault's PKI Secrets](https://github.com/salrashid123/vault_pki_mtls))
+This repo previously used Vault's PKI engine and now uses the stand-alone Transit RSA keys.  To use the PKI engine, use code prior to commit [c701f97c4acf46096c70c31c4f027ffb7dc20915](https://github.com/salrashid123/signer/commit/c701f97c4acf46096c70c31c4f027ffb7dc20915) and import `github.com/salrashid123/signer/vault v0.0.0-20220411105052-0b6f54ba3528`. See [mTLS using Hashcorp Vault's PKI Secrets](https://github.com/salrashid123/vault_pki_mtls))
 
 ### Sign/Verify PSS
 
