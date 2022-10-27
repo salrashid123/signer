@@ -20,6 +20,7 @@ import (
 	salpem "github.com/salrashid123/signer/pem"
 	//salkms "github.com/salrashid123/signer/kms"
 	//saltpm "github.com/salrashid123/signer/tpm"
+	//salvault "github.com/salrashid123/signer/vault"
 )
 
 /*
@@ -72,6 +73,16 @@ func main() {
 	// 	KeyRing:            "kr",
 	// 	Key:                "s",
 	// 	KeyVersion:         "1",
+	// 	SignatureAlgorithm: x509.SHA256WithRSA,
+	// })
+
+	// r, err := salvault.NewVaultCrypto(&salvault.Vault{
+	// 	VaultToken:         "s.JWSYsGG4SsvsojZYyrRfKrUt",
+	// 	KeyPath:            "transit/keys/key1",
+	// 	SignPath:           "transit/sign/key1",
+	// 	KeyVersion:         1,
+	// 	VaultCAcert:        "../example/certs/tls-ca-chain.pem",
+	// 	VaultAddr:          "https://vault.domain.com:8200",
 	// 	SignatureAlgorithm: x509.SHA256WithRSA,
 	// })
 

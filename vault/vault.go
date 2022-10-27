@@ -6,15 +6,17 @@ package tpm
 
 import (
 	"crypto"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/hashicorp/vault/api"
@@ -25,14 +27,10 @@ const (
 )
 
 var (
-	x509Certificate    x509.Certificate
-	publicKey          crypto.PublicKey
-	clientCAs          *x509.CertPool
-	clientAuth         *tls.ClientAuthType
-	caPEM              string
-	publicCert         string
-	privatePEM         string
-	signatureAlgorithm x509.SignatureAlgorithm
+	x509Certificate x509.Certificate
+	publicKey       crypto.PublicKey
+	publicCert      string
+	client          *api.Client
 )
 
 type Vault struct {
@@ -41,26 +39,25 @@ type Vault struct {
 
 	ExtTLSConfig       *tls.Config
 	SignatureAlgorithm x509.SignatureAlgorithm
-
-	CertCN      string
-	VaultToken  string
-	VaultPath   string
-	VaultCAcert string
-	VaultAddr   string
-
-	vaultTokenSecret *api.Secret
+	PublicCertFile     string
+	VaultToken         string
+	KeyPath            string
+	SignPath           string
+	KeyVersion         int
+	VerifyPath         string // not used
+	VaultCAcert        string
+	VaultAddr          string
 
 	refreshMutex sync.Mutex
 }
 
 func NewVaultCrypto(conf *Vault) (Vault, error) {
 
-	var caCertPool *x509.CertPool
-	caCertPool = x509.NewCertPool()
+	caCertPool := x509.NewCertPool()
 	if conf.VaultCAcert != "" {
 		caCert, err := ioutil.ReadFile(conf.VaultCAcert)
 		if err != nil {
-			return Vault{}, fmt.Errorf("Unable to read root CA certificate for Vault Server: %v", err)
+			return Vault{}, fmt.Errorf("unable to read root CA certificate for Vault Server: %v", err)
 		}
 		caCertPool.AppendCertsFromPEM(caCert)
 	}
@@ -74,9 +71,22 @@ func NewVaultCrypto(conf *Vault) (Vault, error) {
 		}},
 	}
 
-	client, err := api.NewClient(config)
+	if conf.KeyVersion == 0 {
+		return Vault{}, errors.New("KeyVersion must be set")
+	}
+
+	if conf.VaultToken == "" {
+		return Vault{}, errors.New("VaultToken must be set")
+	}
+
+	if conf.KeyPath == "" || conf.SignPath == "" {
+		return Vault{}, errors.New("KeyPath and SignPath must be set")
+	}
+
+	var err error
+	client, err = api.NewClient(config)
 	if err != nil {
-		return Vault{}, fmt.Errorf("Unable to initialize vault client: %v", err)
+		return Vault{}, fmt.Errorf("unable to initialize vault client: %v", err)
 	}
 
 	client.SetToken(conf.VaultToken)
@@ -104,33 +114,41 @@ func NewVaultCrypto(conf *Vault) (Vault, error) {
 		if err != nil {
 			return Vault{}, fmt.Errorf("VaultToken unable to renew vault token: %v", err)
 		}
+		// todo, verify if the clienttoken is actually what we need
+		client.SetToken(vaultTokenSecret.Auth.ClientToken)
 	}
 
-	data := map[string]interface{}{
-		"common_name": conf.CertCN,
-	}
-
-	secret, err := client.Logical().Write(conf.VaultPath, data)
+	secret, err := client.Logical().Read(conf.KeyPath)
 	if err != nil {
-		return Vault{}, fmt.Errorf("VaultToken:  Unable to read resource at path [%s] error: %v", conf.VaultPath, err)
+		return Vault{}, fmt.Errorf("VaultToken:  Unable to read resource at path [%s] error: %v", conf.KeyPath, err)
 	}
 
 	d := secret.Data
-	publicCert = d["certificate"].(string)
-	caPEM = d["issuing_ca"].(string)
-	privatePEM = d["private_key"].(string)
+	keys, ok := d["keys"].(map[string]interface{})
+	if ok {
+		firstKey, ok := keys[fmt.Sprintf("%d", conf.KeyVersion)].(map[string]interface{})
+		if ok {
+			pubPEM := firstKey["public_key"].(string)
 
+			block, _ := pem.Decode([]byte(fmt.Sprintf("\n%s\n", pubPEM)))
+			if block == nil {
+				return Vault{}, fmt.Errorf("failed to parse PEM block containing the key ")
+			}
+
+			pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+			if err != nil {
+				return Vault{}, err
+			}
+			publicKey, ok = pub.(crypto.PublicKey)
+			if !ok {
+				return Vault{}, fmt.Errorf("failed convert public key")
+			}
+		}
+	}
 	return *conf, nil
 }
 
 func (t Vault) Public() crypto.PublicKey {
-
-	pubKeyBlock, _ := pem.Decode([]byte(publicCert))
-
-	var cert *x509.Certificate
-	cert, _ = x509.ParseCertificate(pubKeyBlock.Bytes)
-	publicKey := cert.PublicKey.(*rsa.PublicKey)
-
 	return publicKey
 }
 
@@ -138,38 +156,64 @@ func (t Vault) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte,
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
-	hash := opts.HashFunc()
-	if len(digest) != hash.Size() {
-		return nil, fmt.Errorf("sal: Sign: Digest length doesn't match passed crypto algorithm")
-	}
-
-	block, _ := pem.Decode([]byte(privatePEM))
-	if block == nil {
-		return nil, fmt.Errorf("failed to parse PEM block containing the key")
-	}
-	priv, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("sal: Sign: Digest length doesn't match passed crypto algorithm")
-	}
+	b64Data := base64.StdEncoding.EncodeToString(digest)
 
 	var signature []byte
-	// RSA-PSS: https://github.com/golang/go/issues/32425
 
 	if t.SignatureAlgorithm == x509.SHA256WithRSAPSS {
-		var ropts rsa.PSSOptions
-		ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
+		salt := "auto"
 
-		signature, err = rsa.SignPSS(rand.Reader, priv, opts.HashFunc(), digest, &ropts)
+		ropts, ok := opts.(*rsa.PSSOptions)
+		if ok {
+			if ropts.SaltLength == rsa.PSSSaltLengthEqualsHash {
+				//salt = "hash"
+				// todo, i can't get this working so bail
+				return nil, errors.New("PSSSaltLengthEqualsHash not supported")
+			}
+		}
+		data := map[string]interface{}{
+			"input":               b64Data,
+			"signature_algorithm": "pss",
+			"prehashed":           true,
+			"hash_algorithm":      "sha2-256",
+			"salt":                salt,
+		}
+		secret, err := client.Logical().Write(t.SignPath, data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to sign RSA-PSS %v", err)
+			return nil, fmt.Errorf("VaultToken:  Unable to  sign  %v", err)
+		}
+
+		d := secret.Data
+		sig, ok := d["signature"].(string)
+		if ok {
+			signature, err = base64.StdEncoding.DecodeString(strings.TrimPrefix(sig, "vault:v1:"))
+			if err != nil {
+				return nil, fmt.Errorf("VaultToken:  Unable to  base64decode signature  %v", err)
+			}
+		} else {
+			return nil, fmt.Errorf("VaultToken:  Error Signing")
 		}
 	} else {
-		signature, err = rsa.SignPKCS1v15(rand.Reader, priv, opts.HashFunc(), digest)
-		if err != nil {
-			return nil, fmt.Errorf("failed to sign RSA-SignPKCS1v15 %v", err)
+		data := map[string]interface{}{
+			"input":               b64Data,
+			"signature_algorithm": "pkcs1v15",
+			"prehashed":           true,
+			"hash_algorithm":      "sha2-256",
 		}
+		secret, err := client.Logical().Write(t.SignPath, data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to sign RSA-PSS %v", err)
+			return nil, fmt.Errorf("VaultToken:  Unable to  sign  %v", err)
+		}
+
+		d := secret.Data
+		sig, ok := d["signature"].(string)
+		if ok {
+			signature, err = base64.StdEncoding.DecodeString(strings.TrimPrefix(sig, "vault:v1:"))
+			if err != nil {
+				return nil, fmt.Errorf("VaultToken:  Unable to  base64decode signature  %v", err)
+			}
+		} else {
+			return nil, fmt.Errorf("VaultToken:  Error Signing")
 		}
 	}
 	return signature, nil
@@ -200,6 +244,10 @@ func (t Vault) TLSCertificate() tls.Certificate {
 
 func (t Vault) TLSConfig() *tls.Config {
 
+	if publicCert == "" {
+		fmt.Errorf("publicCert variable must be set for TLS")
+		return nil
+	}
 	return &tls.Config{
 		Certificates: []tls.Certificate{t.TLSCertificate()},
 

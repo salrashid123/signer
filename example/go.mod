@@ -11,6 +11,11 @@ require (
 )
 
 require (
+	github.com/google/go-tpm v0.3.3
+	github.com/google/go-tpm-tools v0.3.9
+)
+
+require (
 	cloud.google.com/go v0.94.1 // indirect
 	cloud.google.com/go/kms v1.0.0 // indirect
 	github.com/armon/go-metrics v0.3.9 // indirect
@@ -21,8 +26,6 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/go-cmp v0.5.7 // indirect
-	github.com/google/go-tpm v0.3.3 // indirect
-	github.com/google/go-tpm-tools v0.3.9 // indirect
 	github.com/googleapis/gax-go/v2 v2.1.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect

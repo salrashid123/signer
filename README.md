@@ -7,7 +7,7 @@ for private keys based on
 
 - `kms/`:  Sample that implements `crypto.Signer` using Google Cloud KMS
 - `tpm/`:  Sample that implements `crypto.Signer`  using `go-tpm` library for Trusted Platform Module
-- `vault/`:  `crypto.Signer` for use with [Hashicorp Vault PKI Secrets](https://www.vaultproject.io/docs/secrets/pki)
+- `vault/`:  `crypto.Signer` for use with [Hashicorp Vault Transit Engine](https://www.vaultproject.io/docs/secrets/transit)
 - `pem/`:  Sample that implements `crypto.Signer`  They key file this mode accepts is RSA private key. THis is nothing new..you can ofcourse do this absolutely without this!...i just have it here as an example
 - `certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 - `csrgen/`:  Library that generates a CSR using the key in KMS or TPM 

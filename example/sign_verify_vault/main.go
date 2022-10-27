@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -17,12 +18,13 @@ var ()
 func main() {
 
 	r, err := salvault.NewVaultCrypto(&salvault.Vault{
-		CertCN:      "client.domain.com",
-		VaultToken:  "s.Mlu0TVNkfYh3GkE51r1i0kcv",
-		VaultPath:   "pki/issue/domain-dot-com",
-		VaultCAcert: "path/to/certs/ca/tls-ca.crt",
-		VaultAddr:   "https://vault.domain.com:8200",
-		// SignatureAlgorithm: x509.SHA256WithRSAPSS,
+		VaultToken:         "s.HA5jPy9J1PT1gFJdU4gFpopW",
+		KeyPath:            "transit/keys/key1",
+		SignPath:           "transit/sign/key1",
+		KeyVersion:         1,
+		VaultCAcert:        "../certs/tls-ca-chain.pem",
+		VaultAddr:          "https://vault.domain.com:8200",
+		SignatureAlgorithm: x509.SHA256WithRSA,
 	})
 	if err != nil {
 		fmt.Println(err)
@@ -30,7 +32,7 @@ func main() {
 	}
 
 	stringToSign := "foo"
-	fmt.Printf("Data to sign %s\n", stringToSign)
+	fmt.Printf("Data to sign SHA256WithRSA %s\n", stringToSign)
 
 	b := []byte(stringToSign)
 
@@ -50,17 +52,41 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Printf("Signed String verified\n")
+	fmt.Printf("Signed String SHA256WithRSA verified\n")
+	// PSS
 
-	// var ropts rsa.PSSOptions
-	// ropts.SaltLength = rsa.PSSSaltLengthEqualsHash
+	fmt.Println()
+	rs, err := salvault.NewVaultCrypto(&salvault.Vault{
+		VaultToken:         "s.HA5jPy9J1PT1gFJdU4gFpopW",
+		KeyPath:            "transit/keys/key1",
+		SignPath:           "transit/sign/key1",
+		KeyVersion:         1,
+		VaultCAcert:        "../certs/tls-ca-chain.pem",
+		VaultAddr:          "https://vault.domain.com:8200",
+		SignatureAlgorithm: x509.SHA256WithRSAPSS,
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
-	// err = rsa.VerifyPSS(r.Public().(*rsa.PublicKey), crypto.SHA256, digest, s, &ropts)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return
-	// }
+	// only auto is supported
+	var ropts rsa.PSSOptions
+	ropts.SaltLength = rsa.PSSSaltLengthAuto
 
+	pss, err := rs.Sign(rand.Reader, digest, &ropts)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	fmt.Printf("Signed SHA256WithRSAPSS String: %s\n", base64.StdEncoding.EncodeToString(pss))
+
+	err = rsa.VerifyPSS(rs.Public().(*rsa.PublicKey), crypto.SHA256, digest, pss, &ropts)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Printf("Signed String SHA256WithRSAPSS verified\n")
 	/// *********************************************************
 
 }
