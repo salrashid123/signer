@@ -27,9 +27,13 @@ Initialize a signer and directly use `.sign()` as shown in this sample for GCS S
 
 see `example/mtls` folder
 
-* for vault see [mTLS using Hashcorp Vault's PKI Secrets](https://github.com/salrashid123/vault_pki_mtls))
 * for tpm see [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
 * for kms see [mTLS with Google Cloud KMS](https://github.com/salrashid123/kms_golang_signer)
+
+
+#### Vault's PKI secrets engine vs Trasnit RSA
+
+This repo previously used Vault's PKI engine and now uses the stand-alone Transit RSA keys.  If the PKI engine, use prior commit [c701f97c4acf46096c70c31c4f027ffb7dc20915](https://github.com/salrashid123/signer/commit/c701f97c4acf46096c70c31c4f027ffb7dc20915) and import `github.com/salrashid123/signer/vault v0.0.0-20220411105052-0b6f54ba3528`. See [mTLS using Hashcorp Vault's PKI Secrets](https://github.com/salrashid123/vault_pki_mtls))
 
 ### Sign/Verify PSS
 
