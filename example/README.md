@@ -21,7 +21,7 @@ example usage generates a new TPM unrestricted RSA key and sign,verify some data
 to use, you can create a key directly which will create an RSA key and make it persistent to `0x81008000`
 
 ```bash
-go run sign_verify_tpm/main.go
+go run sign_verify_tpm/main.go --evict=true
 ```
 
 you can also use `TPM2_TOOLS` to import an external RSA key and seal it to handle

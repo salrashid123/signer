@@ -122,8 +122,8 @@ func main() {
 		fmt.Printf("======= Evicting Handles ========\n")
 		err = tpm2.EvictControl(rwc, "", tpm2.HandleOwner, pHandle, pHandle)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error Unable evict persistentHandle %v\n", err)
-			os.Exit(1)
+			// fmt.Fprintf(os.Stderr, "Error Unable evict persistentHandle %v\n", err)
+			// os.Exit(1)
 		}
 
 		err = tpm2.EvictControl(rwc, "", tpm2.HandleOwner, newHandle, pHandle)
