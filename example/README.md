@@ -9,7 +9,7 @@ Create keys
 ```bash
 gcloud kms keyrings create kr  --location=us-central1
 
-gcloud kms keys create s --keyring=kr --purpose=asymmetric-signing --location=us-central1 --default-algorithm=rsa-sign-pkcs1-2048-sha256
+gcloud kms keys create --keyring=kr --purpose=asymmetric-signing --location=us-central1 --default-algorithm=rsa-sign-pkcs1-2048-sha256
 ```
 
 
@@ -18,18 +18,33 @@ gcloud kms keys create s --keyring=kr --purpose=asymmetric-signing --location=us
 
 example usage generates a new TPM unrestricted RSA key and sign,verify some data.
 
+to use, you can create a key directly which will create an RSA key and make it persistent to `0x81008000`
+
+```bash
+go run sign_verify_tpm/main.go
+```
+
 you can also use `TPM2_TOOLS` to import an external RSA key and seal it to handle
 
 if you want to generate a key with `tpm2_tools` and make it persistent, 
 
 ```bash
+
+## the follwoing will create a key on the tpm and make it persistent
 tpm2_createprimary -C o -c primary.ctx
 
-tpm2_import -C primary.ctx -G rsa -i client.key -u key.pub -r key.priv
+tpm2_create -G rsa -u key.pub -r key.priv -C primary.ctx
 tpm2_load  -C primary.ctx -u key.pub -r key.priv -c key.ctx
-tpm2_evictcontrol -C o -c  0x81010002
-tpm2_evictcontrol -C o -c key.ctx 0x81010002
+tpm2_evictcontrol -C o -c  0x81008000
+tpm2_evictcontrol -C o -c key.ctx 0x81008000
+
+go run sign_verify_tpm/main.go --evict=false --persistentHandle=0x81008000
 ```
+
+Please note that we are persisting the handle here for easy access.  The more formal way is to save the entire chain of keys (which is a TODO)
+
+A limitation of using persistent handles is that its limited on a TPM (typically 7 slots).  You have to evict (i.,e delete) one before loading a new one.
+
 
 ### Vault
 

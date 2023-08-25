@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	//"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
@@ -38,9 +39,9 @@ var (
 type TPM struct {
 	crypto.Signer
 
-	TpmHandleFile      string
 	TpmHandle          uint32
 	TpmDevice          string
+	FlushContext       bool
 	SignatureAlgorithm x509.SignatureAlgorithm
 	refreshMutex       sync.Mutex
 	PublicCertFile     string
@@ -63,20 +64,22 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 	}
 	defer rwc.Close()
 
-	// for _, handleType := range handleNames["all"] {
-	// 	handles, err := client.Handles(rwc, handleType)
-	// 	if err != nil {
-	// 		return TPM{}, fmt.Errorf("error getting handles")
-	// 	}
-	// 	for _, handle := range handles {
-	// 		if err = tpm2.FlushContext(rwc, handle); err != nil {
-	// 			return TPM{}, fmt.Errorf("error flushing 0x%x: %v", handle, err)
-	// 		}
-	// 	}
-	// }
+	if conf.FlushContext {
+		for _, handleType := range handleNames["all"] {
+			handles, err := client.Handles(rwc, handleType)
+			if err != nil {
+				return TPM{}, fmt.Errorf("error getting handles")
+			}
+			for _, handle := range handles {
+				if err = tpm2.FlushContext(rwc, handle); err != nil {
+					return TPM{}, fmt.Errorf("error flushing 0x%x: %v", handle, err)
+				}
+			}
+		}
+	}
 
-	if conf.TpmHandleFile == "" && conf.TpmHandle == 0 {
-		return TPM{}, fmt.Errorf("at most one of TpmHandle or TpmHandleFile must be specified")
+	if conf.TpmHandle == 0 {
+		return TPM{}, fmt.Errorf(" TpmHandle must be set")
 	}
 	if conf.ExtTLSConfig != nil {
 		if len(conf.ExtTLSConfig.Certificates) > 0 {
@@ -105,23 +108,7 @@ func (t TPM) Public() crypto.PublicKey {
 		defer tpm2.FlushContext(rwc, kh)
 		defer rwc.Close()
 
-		if t.TpmHandleFile != "" {
-			khBytes, err := ioutil.ReadFile(t.TpmHandleFile)
-			if err != nil {
-				fmt.Printf("public: ContextLoad read file for kh: %v\n", err)
-				return nil
-			}
-			kh, err = tpm2.ContextLoad(rwc, khBytes)
-			if err != nil {
-				fmt.Printf("public: ContextLoad read file for kh: %v\n", err)
-				return nil
-			}
-		} else if t.TpmHandle != 0 {
-			kh = tpmutil.Handle(t.TpmHandle)
-		} else {
-			fmt.Println("public: both tpmHandlefile and tpmhandle are null")
-			return errors.New("public: both tpmHandlefile and tpmhandle are null")
-		}
+		kh = tpmutil.Handle(t.TpmHandle)
 
 		pub, _, _, err := tpm2.ReadPublic(rwc, kh)
 		if err != nil {
@@ -153,20 +140,8 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	defer tpm2.FlushContext(rwc, kh)
 	defer rwc.Close()
 
-	if t.TpmHandleFile != "" {
-		khBytes, err := ioutil.ReadFile(t.TpmHandleFile)
-		if err != nil {
-			fmt.Printf("sign: ContextLoad read file for kh: %v\n", err)
-			return []byte(""), fmt.Errorf(" Public: ContextLoad read file for kh: %v", err)
-		}
-		kh, err = tpm2.ContextLoad(rwc, khBytes)
-		if err != nil {
-			fmt.Printf("sign: ContextLoad read file for kh: %v\n", err)
-			return []byte(""), fmt.Errorf("Public: ContextLoad read file for kh:: %v", err)
-		}
-	} else if t.TpmHandle != 0 {
-		kh = tpmutil.Handle(t.TpmHandle)
-	}
+	kh = tpmutil.Handle(t.TpmHandle)
+
 	var signed *tpm2.Signature
 
 	if t.SignatureAlgorithm == x509.SHA256WithRSA {
@@ -180,7 +155,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			Hash: tpm2.AlgSHA256,
 		})
 	}
-	tpm2.FlushContext(rwc, kh)
+
 	if err != nil {
 		fmt.Printf("Failed to sign: %v", err)
 		return []byte(""), fmt.Errorf("sign:  Failed to sign %v", err)
