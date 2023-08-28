@@ -62,9 +62,11 @@ type certGenConfig struct {
 
 func main() {
 
+	// rwc, err := tpm2.OpenTPM(*tpmPath)
+	// k, err := client.LoadCachedKey(rwc, tpmutil.Handle(*persistentHandle), nil)
 	// r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-	// 	TpmDevice: "/dev/tpm0",
-	// 	TpmHandle: 0x81010002,
+	// 	TpmDevice: rwc,
+	// 	Key      : k,
 	// })
 
 	// r, err := salkms.NewKMSCrypto(&salkms.KMS{

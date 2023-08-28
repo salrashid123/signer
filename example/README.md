@@ -35,10 +35,10 @@ tpm2_createprimary -C o -c primary.ctx
 
 tpm2_create -G rsa -u key.pub -r key.priv -C primary.ctx
 tpm2_load  -C primary.ctx -u key.pub -r key.priv -c key.ctx
-tpm2_evictcontrol -C o -c  0x81008000
-tpm2_evictcontrol -C o -c key.ctx 0x81008000
+tpm2_evictcontrol -C o -c  0x81008004
+tpm2_evictcontrol -C o -c key.ctx 0x81008004
 
-go run sign_verify_tpm/main.go --evict=false --persistentHandle=0x81008000
+go run sign_verify_tpm/main.go --evict=false --persistentHandle=0x81008004
 ```
 
 Please note that we are persisting the handle here for easy access.  The more formal way is to save the entire chain of keys (which is a TODO)

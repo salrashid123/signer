@@ -42,9 +42,9 @@ see `example/sign_verify` folder
 
 ### Usage: Generate self-signed certificate
 
-see `util/certgen/`
+see `util/`
 
-```
+```bash
 go run certgen/certgen.go -cn server.domain.com
 ```
 
@@ -52,7 +52,7 @@ go run certgen/certgen.go -cn server.domain.com
 
 see `util/csrgen/`
 
-```
+```bash
 go run certgen/certgen.go -cn server.domain.com
 ```
 

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -134,11 +133,6 @@ func main() {
 		fmt.Printf("======= Key persisted ========\n")
 	}
 
-	err = rwc.Close()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error closing tpm%v\n", err)
-		os.Exit(1)
-	}
 	// ************************
 
 	stringToSign := "foo"
@@ -150,12 +144,18 @@ func main() {
 	h.Write(b)
 	digest := h.Sum(nil)
 
+	k, err := client.LoadCachedKey(rwc, tpmutil.Handle(*persistentHandle), nil)
+	//k, err = client.GceAttestationKeyRSA(rwc)  // signing with restricted key not supported by go-tpm-tools,
+	//  see https://github.com/salrashid123/tpm2/tree/master/ak_sign_nv
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error closing tpm%v\n", err)
+		os.Exit(1)
+	}
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-		TpmDevice: *tpmPath,
-		TpmHandle: uint32(*persistentHandle),
-		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
-		SignatureAlgorithm: x509.SHA256WithRSA,
+		TpmDevice: rwc,
+		Key:       k,
 	})
+
 	if err != nil {
 		fmt.Println(err)
 		return
