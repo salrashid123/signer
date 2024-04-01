@@ -6,14 +6,14 @@ package tpm
 
 import (
 	"crypto"
-	"crypto/rsa"
+	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 	"sync"
 
 	"github.com/google/go-tpm-tools/client"
@@ -23,9 +23,6 @@ import (
 const ()
 
 var (
-	x509Certificate x509.Certificate
-	publicKey       crypto.PublicKey
-
 	handleNames = map[string][]tpm2.HandleType{
 		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
 		"loaded":    {tpm2.HandleTypeLoadedSession},
@@ -44,6 +41,9 @@ type TPM struct {
 	refreshMutex       sync.Mutex
 	PublicCertFile     string
 	ExtTLSConfig       *tls.Config
+
+	x509Certificate x509.Certificate
+	publicKey       crypto.PublicKey
 }
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
@@ -51,8 +51,8 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 	if conf.SignatureAlgorithm == x509.UnknownSignatureAlgorithm {
 		conf.SignatureAlgorithm = x509.SHA256WithRSA
 	}
-	if (conf.SignatureAlgorithm != x509.SHA256WithRSA) && (conf.SignatureAlgorithm != x509.SHA256WithRSAPSS) {
-		return TPM{}, fmt.Errorf("signatureALgorithm must be either x509.SHA256WithRSA or x509.SHA256WithRSAPSS")
+	if (conf.SignatureAlgorithm != x509.SHA256WithRSA) && (conf.SignatureAlgorithm != x509.SHA256WithRSAPSS && conf.SignatureAlgorithm != x509.ECDSAWithSHA256) {
+		return TPM{}, fmt.Errorf("signatureALgorithm must be either x509.SHA256WithRSA or x509.SHA256WithRSAPSS or x509.ECDSAWithSHA256")
 	}
 
 	if conf.TpmDevice == nil || conf.Key == nil {
@@ -71,22 +71,22 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 }
 
 func (t TPM) Public() crypto.PublicKey {
-	if publicKey == nil {
+	if t.publicKey == nil {
 		t.refreshMutex.Lock()
 		defer t.refreshMutex.Unlock()
 		pub, _, _, err := tpm2.ReadPublic(t.TpmDevice, t.Key.Handle())
 		if err != nil {
 			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-			return errors.New(fmt.Sprintf("fmt: Unable to Read Public data from TPM: %v", err))
+			return fmt.Errorf("fmt: Unable to Read Public data from TPM: %v", err)
 		}
 		pubKey, err := pub.Key()
 		if err != nil {
 			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-			return errors.New(fmt.Sprintf("fmt: Unable to Read Public data from TPM: %v", err))
+			return fmt.Errorf("fmt: unable to Read Public data from TPM: %v", err)
 		}
-		publicKey = pubKey.(*rsa.PublicKey)
+		t.publicKey = pubKey
 	}
-	return publicKey
+	return t.publicKey
 }
 
 func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
@@ -100,11 +100,40 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			Alg:  tpm2.AlgRSASSA,
 			Hash: tpm2.AlgSHA256,
 		})
-	} else {
+	} else if t.SignatureAlgorithm == x509.SHA256WithRSAPSS {
 		signed, err = tpm2.Sign(t.TpmDevice, t.Key.Handle(), "", digest[:], nil, &tpm2.SigScheme{
 			Alg:  tpm2.AlgRSAPSS,
 			Hash: tpm2.AlgSHA256,
 		})
+	} else if t.SignatureAlgorithm == x509.ECDSAWithSHA256 {
+
+		tsig, err := tpm2.Sign(t.TpmDevice, t.Key.Handle(), "", digest[:], nil, &tpm2.SigScheme{
+			Alg:  tpm2.AlgECDSA,
+			Hash: tpm2.AlgSHA256,
+		})
+
+		if err != nil {
+			fmt.Printf("Failed to sign: %v", err)
+			return nil, fmt.Errorf("sign:  Failed to sign %v", err)
+		}
+		// dont' use asn1
+		// sigStruct := struct{ R, S *big.Int }{tsig.ECC.R, tsig.ECC.S}
+		// return asn1.Marshal(sigStruct), nil
+
+		// https://github.com/golang-jwt/jwt/blob/main/ecdsa.go#L92
+		epub := t.Key.PublicKey().(*ecdsa.PublicKey)
+		curveBits := epub.Curve.Params().BitSize
+		keyBytes := curveBits / 8
+		if curveBits%8 > 0 {
+			keyBytes += 1
+		}
+		out := make([]byte, 2*keyBytes)
+		tsig.ECC.R.FillBytes(out[0:keyBytes])
+		tsig.ECC.S.FillBytes(out[keyBytes:])
+		return out, nil
+
+	} else {
+		return nil, errors.New("Unsupported signature type")
 	}
 
 	if err != nil {
@@ -123,7 +152,7 @@ func (t TPM) TLSCertificate() tls.Certificate {
 		return tls.Certificate{}
 	}
 
-	pubPEM, err := ioutil.ReadFile(t.PublicCertFile)
+	pubPEM, err := os.ReadFile(t.PublicCertFile)
 	if err != nil {
 		fmt.Printf("Unable to read keys %v", err)
 		return tls.Certificate{}
@@ -139,12 +168,12 @@ func (t TPM) TLSCertificate() tls.Certificate {
 		return tls.Certificate{}
 	}
 
-	x509Certificate = *pub
+	t.x509Certificate = *pub
 	var privKey crypto.PrivateKey = t
 	return tls.Certificate{
 		PrivateKey:  privKey,
-		Leaf:        &x509Certificate,
-		Certificate: [][]byte{x509Certificate.Raw},
+		Leaf:        &t.x509Certificate,
+		Certificate: [][]byte{t.x509Certificate.Raw},
 	}
 }
 

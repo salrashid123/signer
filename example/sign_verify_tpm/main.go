@@ -2,9 +2,11 @@ package main
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -24,47 +26,9 @@ const (
 )
 
 var (
-	tpmPath          = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-	persistentHandle = flag.Uint("persistentHandle", 0x81008000, "Handle value")
-	flush            = flag.String("flush", "all", "Flush existing handles")
-	evict            = flag.Bool("evict", false, "Evict prior handle")
-	handleNames      = map[string][]tpm2.HandleType{
-		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    {tpm2.HandleTypeLoadedSession},
-		"saved":     {tpm2.HandleTypeSavedSession},
-		"transient": {tpm2.HandleTypeTransient},
-	}
-
-	defaultKeyParams = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagRestricted | tpm2.FlagDecrypt,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
-			},
-			KeyBits: 2048,
-		},
-	}
-
-	rsaKeyParams = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagSign,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSASSA,
-				Hash: tpm2.AlgSHA256,
-			},
-			KeyBits: 2048,
-		},
-	}
+	tpmPath             = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
+	rsapersistentHandle = flag.Uint("rsapersistentHandle", 0x81008001, "rsa Handle value")
+	eccpersistentHandle = flag.Uint("eccpersistentHandle", 0x81008002, "ecc Handle value")
 )
 
 func main() {
@@ -77,62 +41,6 @@ func main() {
 		return
 	}
 
-	totalHandles := 0
-	for _, handleType := range handleNames[*flush] {
-		handles, err := client.Handles(rwc, handleType)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error getting handles", *tpmPath, err)
-			os.Exit(1)
-		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				fmt.Fprintf(os.Stderr, "Error flushing handle 0x%x: %v\n", handle, err)
-				os.Exit(1)
-			}
-			fmt.Printf("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
-
-	pcrList := []int{0}
-	pcrSelection := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: pcrList}
-
-	pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, emptyPassword, emptyPassword, defaultKeyParams)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
-		return
-	}
-
-	privInternal, pubArea, _, _, _, err := tpm2.CreateKey(rwc, pkh, pcrSelection, defaultPassword, defaultPassword, rsaKeyParams)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
-		os.Exit(1)
-	}
-	newHandle, _, err := tpm2.Load(rwc, pkh, defaultPassword, pubArea, privInternal)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error  loading  key handle%v\n", err)
-		os.Exit(1)
-	}
-	tpm2.FlushContext(rwc, pkh)
-	defer tpm2.FlushContext(rwc, newHandle)
-	pHandle := tpmutil.Handle(uint32(*persistentHandle))
-	defer tpm2.FlushContext(rwc, pHandle)
-	if *evict {
-		fmt.Printf("======= Evicting Handles ========\n")
-		err = tpm2.EvictControl(rwc, "", tpm2.HandleOwner, pHandle, pHandle)
-		if err != nil {
-			// fmt.Fprintf(os.Stderr, "Error Unable evict persistentHandle %v\n", err)
-			// os.Exit(1)
-		}
-
-		err = tpm2.EvictControl(rwc, "", tpm2.HandleOwner, newHandle, pHandle)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error Unable to save persistentHandle %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("======= Key persisted ========\n")
-	}
-
 	// ************************
 
 	stringToSign := "foo"
@@ -143,17 +51,16 @@ func main() {
 	h := sha256.New()
 	h.Write(b)
 	digest := h.Sum(nil)
-
-	k, err := client.LoadCachedKey(rwc, tpmutil.Handle(*persistentHandle), nil)
-	//k, err = client.GceAttestationKeyRSA(rwc)  // signing with restricted key not supported by go-tpm-tools,
-	//  see https://github.com/salrashid123/tpm2/tree/master/ak_sign_nv
+	pHandle := tpmutil.Handle(uint32(*rsapersistentHandle))
+	k, err := client.LoadCachedKey(rwc, pHandle, nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error closing tpm%v\n", err)
+		fmt.Fprintf(os.Stderr, "error loading rsa key%v\n", err)
 		os.Exit(1)
 	}
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-		TpmDevice: rwc,
-		Key:       k,
+		TpmDevice:          rwc,
+		Key:                k,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 	})
 
 	if err != nil {
@@ -166,7 +73,7 @@ func main() {
 		log.Println(err)
 		return
 	}
-	fmt.Printf("Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
+	fmt.Printf("RSA Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
 
 	rsaPubKey, ok := r.Public().(*rsa.PublicKey)
 	if !ok {
@@ -189,6 +96,44 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Printf("Signed String verified\n")
+	fmt.Printf("RSA Signed String verified\n")
 
+	//******************************************************************************************************
+
+	eHandle := tpmutil.Handle(uint32(*eccpersistentHandle))
+	ek, err := client.LoadCachedKey(rwc, eHandle, nil)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error closing tpm%v\n", err)
+		os.Exit(1)
+	}
+	er, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+		TpmDevice:          rwc,
+		Key:                ek,
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	})
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	es, err := er.Sign(rand.Reader, digest, crypto.SHA256)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	fmt.Printf("ECC Signed String: %s\n", base64.StdEncoding.EncodeToString(es))
+
+	ecPubKey, ok := er.Public().(*ecdsa.PublicKey)
+	if !ok {
+		log.Println("EKPublic key not found")
+		return
+	}
+
+	epub := ek.PublicKey().(*ecdsa.PublicKey)
+	ok = ecdsa.Verify(ecPubKey, digest[:], epub.X, epub.Y)
+	if !ok {
+		fmt.Printf("ECDSA Signed String failed\n")
+	}
+	fmt.Printf("ECDSA Signed String verified\n")
 }

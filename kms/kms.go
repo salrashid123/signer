@@ -26,18 +26,18 @@ const ()
 var (
 	refreshMutex    = &sync.Mutex{}
 	x509Certificate x509.Certificate
-	publicKey       crypto.PublicKey
-	rootCAs         *x509.CertPool
-	clientCAs       *x509.CertPool
-	clientAuth      *tls.ClientAuthType
+
+	rootCAs    *x509.CertPool
+	clientCAs  *x509.CertPool
+	clientAuth *tls.ClientAuthType
 )
 
 type KMS struct {
 	crypto.Signer // https://golang.org/pkg/crypto/#Signer
 
-	PublicKeyFile string
-	ExtTLSConfig  *tls.Config
-
+	PublicKeyFile      string
+	ExtTLSConfig       *tls.Config
+	publicKey          crypto.PublicKey
 	ProjectId          string
 	LocationId         string
 	KeyRing            string
@@ -71,7 +71,7 @@ func NewKMSCrypto(conf *KMS) (KMS, error) {
 }
 
 func (t KMS) Public() crypto.PublicKey {
-	if publicKey == nil {
+	if t.publicKey == nil {
 		ctx := context.Background()
 		parentName := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%s", t.ProjectId, t.LocationId, t.KeyRing, t.Key, t.KeyVersion)
 
@@ -89,15 +89,14 @@ func (t KMS) Public() crypto.PublicKey {
 		}
 		pubKeyBlock, _ := pem.Decode([]byte(dresp.Pem))
 
-		pub, err := x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
+		t.publicKey, err = x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
 		if err != nil {
 			fmt.Printf("Error parsing PublicKey %v", err)
 			return nil
 		}
-		publicKey = pub.(*rsa.PublicKey)
 	}
 
-	return publicKey
+	return t.publicKey
 }
 
 func (t KMS) TLSCertificate() tls.Certificate {

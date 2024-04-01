@@ -29,16 +29,23 @@ you can also use `TPM2_TOOLS` to import an external RSA key and seal it to handl
 if you want to generate a key with `tpm2_tools` and make it persistent, 
 
 ```bash
+cd example/
+## RSA
+tpm2_createprimary -C e -c rprimary.ctx
+tpm2_create -G rsa -u rkey.pub -r key.priv -C rprimary.ctx
+tpm2_load -C rprimary.ctx -u rkey.pub -r rkey.priv -c rkey.ctx
+tpm2_evictcontrol -C o -c key.ctx 0x81008001
 
-## the follwoing will create a key on the tpm and make it persistent
-tpm2_createprimary -C o -c primary.ctx
+go run sign_verify_tpm/main.go --rsapersistentHandle=0x81008001
 
-tpm2_create -G rsa -u key.pub -r key.priv -C primary.ctx
-tpm2_load  -C primary.ctx -u key.pub -r key.priv -c key.ctx
-tpm2_evictcontrol -C o -c  0x81008004
-tpm2_evictcontrol -C o -c key.ctx 0x81008004
 
-go run sign_verify_tpm/main.go --evict=false --persistentHandle=0x81008004
+tpm2_createprimary -C e -c eprimary.ctx
+tpm2_create -G ecc -u ekey.pub -r ekey.priv -C eprimary.ctx
+tpm2_load -C eprimary.ctx -u ekey.pub -r ekey.priv -c ekey.ctx
+tpm2_evictcontrol -C o -c ekey.ctx 0x81008002
+
+## ECC
+go run sign_verify_tpm/main.go --eccpersistentHandle=0x81008002
 ```
 
 Please note that we are persisting the handle here for easy access.  The more formal way is to save the entire chain of keys (which is a TODO)
