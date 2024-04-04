@@ -9,7 +9,14 @@ Create keys
 ```bash
 gcloud kms keyrings create kr  --location=us-central1
 
-gcloud kms keys create --keyring=kr --purpose=asymmetric-signing --location=us-central1 --default-algorithm=rsa-sign-pkcs1-2048-sha256
+## rsa-sign-pkcs1-2048-sha256
+gcloud kms keys create rskey1 --keyring=kr --purpose=asymmetric-signing --location=us-central1 --default-algorithm=rsa-sign-pkcs1-2048-sha256
+
+## rsa-sign-pss-2048-sha256
+gcloud kms keys create rskey2 --keyring=kr --purpose=asymmetric-signing --location=us-central1 --default-algorithm=rsa-sign-pss-2048-sha256
+
+## ec-sign-p256-sha256
+gcloud kms keys create ec1 --keyring=kr --purpose=asymmetric-signing --location=us-central1 --default-algorithm=ec-sign-p256-sha256
 ```
 
 

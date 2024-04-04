@@ -2,9 +2,11 @@ package main
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -26,13 +28,21 @@ func main() {
 	digest := h.Sum(nil)
 
 	r, err := salkms.NewKMSCrypto(&salkms.KMS{
-		ProjectId:  "mineral-minutia-820",
-		LocationId: "us-central1",
-		KeyRing:    "kr",
-		Key:        "s",
-		KeyVersion: "1",
-		// SignatureAlgorithm: x509.SHA256WithRSAPSS,
+		ProjectId:          "core-eso",
+		LocationId:         "us-central1",
+		KeyRing:            "kr",
+		Key:                "rskey1",
+		KeyVersion:         "1",
+		SignatureAlgorithm: x509.SHA256WithRSA,
 	})
+	// r, err := salkms.NewKMSCrypto(&salkms.KMS{
+	// 	ProjectId:          "core-eso",
+	// 	LocationId:         "us-central1",
+	// 	KeyRing:            "kr",
+	// 	Key:                "rskey2",
+	// 	KeyVersion:         "1",
+	// 	SignatureAlgorithm: x509.SHA256WithRSAPSS,
+	// })
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -51,6 +61,7 @@ func main() {
 		return
 	}
 
+	// rsa-sign-pkcs1-2048-sha256
 	err = rsa.VerifyPKCS1v15(rsaPubKey, crypto.SHA256, digest, s)
 	if err != nil {
 		fmt.Println(err)
@@ -58,10 +69,10 @@ func main() {
 	}
 	fmt.Printf("Signed String verified\n")
 
-	// PSS ******************
+	// rsa-sign-pss-2048-sha256
 
 	// // // For PSS, the salt length used is equal to the length of digest algorithm.
-	// err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest[:], s2, &rsa.PSSOptions{
+	// err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest[:], s, &rsa.PSSOptions{
 	// 	SaltLength: rsa.PSSSaltLengthEqualsHash,
 	// 	Hash:       crypto.SHA256,
 	// })
@@ -71,4 +82,30 @@ func main() {
 	// }
 	// fmt.Printf("Signed String verified\n")
 
+	//  ec-sign-p256-sha256
+	ecr, err := salkms.NewKMSCrypto(&salkms.KMS{
+		ProjectId:          "core-eso",
+		LocationId:         "us-central1",
+		KeyRing:            "kr",
+		Key:                "ec1",
+		KeyVersion:         "1",
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	epub := ecr.Public().(*ecdsa.PublicKey)
+	es, err := ecr.Sign(rand.Reader, digest, crypto.SHA256)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	fmt.Printf("Signed String: %s\n", base64.StdEncoding.EncodeToString(es))
+
+	ecdsa.Verify(epub, digest, epub.X, epub.Y)
+	if !ok {
+		fmt.Printf("ECDSA Signed String failed\n")
+	}
+	fmt.Printf("ECDSA Signed String verified\n")
 }

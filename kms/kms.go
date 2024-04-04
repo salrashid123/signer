@@ -11,14 +11,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"io"
+	"os"
 	"sync"
 
 	"context"
 	"fmt"
-	"io/ioutil"
 
 	cloudkms "cloud.google.com/go/kms/apiv1"
-	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
+	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 )
 
 const ()
@@ -51,8 +51,8 @@ func NewKMSCrypto(conf *KMS) (KMS, error) {
 	if conf.SignatureAlgorithm == x509.UnknownSignatureAlgorithm {
 		conf.SignatureAlgorithm = x509.SHA256WithRSA
 	}
-	if (conf.SignatureAlgorithm != x509.SHA256WithRSA) && (conf.SignatureAlgorithm != x509.SHA256WithRSAPSS) {
-		return KMS{}, fmt.Errorf("signatureALgorithm must be either x509.SHA256WithRSA or x509.SHA256WithRSAPSS")
+	if (conf.SignatureAlgorithm != x509.SHA256WithRSA) && (conf.SignatureAlgorithm != x509.SHA256WithRSAPSS) && (conf.SignatureAlgorithm != x509.ECDSAWithSHA256) {
+		return KMS{}, fmt.Errorf("signatureALgorithm must be either x509.SHA256WithRSA or x509.SHA256WithRSAPSS or x509.ECDSAWithSHA256")
 	}
 
 	if conf.ProjectId == "" {
@@ -106,7 +106,7 @@ func (t KMS) TLSCertificate() tls.Certificate {
 		return tls.Certificate{}
 	}
 
-	pubPEM, err := ioutil.ReadFile(t.PublicKeyFile)
+	pubPEM, err := os.ReadFile(t.PublicKeyFile)
 	if err != nil {
 		fmt.Printf("Unable to read keys %v", err)
 		return tls.Certificate{}
