@@ -2,17 +2,24 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Creates a crypto.Signer() for TPM based credentials
+//   Support RSA, ECC and keys with policiyPCR
+// Also fulfils TLSCertificate() interface for use with TLS
+
 package tpm
 
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"io"
+	"log"
+	"math/big"
 	"os"
 	"sync"
 
@@ -22,38 +29,28 @@ import (
 
 const ()
 
-var (
-	handleNames = map[string][]tpm2.HandleType{
-		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    {tpm2.HandleTypeLoadedSession},
-		"saved":     {tpm2.HandleTypeSavedSession},
-		"transient": {tpm2.HandleTypeTransient},
-	}
-)
+var ()
+
+// Configures and manages Singer configuration
+//
 
 type TPM struct {
 	crypto.Signer
 
-	Key                *client.Key
-	TpmDevice          io.ReadWriteCloser
-	FlushContext       bool
-	SignatureAlgorithm x509.SignatureAlgorithm
-	refreshMutex       sync.Mutex
-	PublicCertFile     string
-	ExtTLSConfig       *tls.Config
+	Key            *client.Key        // load a key from handle
+	TpmDevice      io.ReadWriteCloser // TPM Device path /dev/tpm0
+	ECCRawOutput   bool               // for ECC keys, output raw signatures. If false, signature is ans1 formatted
+	refreshMutex   sync.Mutex
+	PublicCertFile string      // a provided public x509 certificate for the signer
+	ExtTLSConfig   *tls.Config // override tls.Config values
 
 	x509Certificate x509.Certificate
 	publicKey       crypto.PublicKey
 }
 
-func NewTPMCrypto(conf *TPM) (TPM, error) {
+// Configure a new TPM crypto.Signer
 
-	if conf.SignatureAlgorithm == x509.UnknownSignatureAlgorithm {
-		conf.SignatureAlgorithm = x509.SHA256WithRSA
-	}
-	if (conf.SignatureAlgorithm != x509.SHA256WithRSA) && (conf.SignatureAlgorithm != x509.SHA256WithRSAPSS && conf.SignatureAlgorithm != x509.ECDSAWithSHA256) {
-		return TPM{}, fmt.Errorf("signatureALgorithm must be either x509.SHA256WithRSA or x509.SHA256WithRSAPSS or x509.ECDSAWithSHA256")
-	}
+func NewTPMCrypto(conf *TPM) (TPM, error) {
 
 	if conf.TpmDevice == nil || conf.Key == nil {
 		return TPM{}, fmt.Errorf(" TpmDevice and Key must be set")
@@ -93,56 +90,44 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
-	var signed *tpm2.Signature
 	var err error
-	if t.SignatureAlgorithm == x509.SHA256WithRSA {
-		signed, err = tpm2.Sign(t.TpmDevice, t.Key.Handle(), "", digest[:], nil, &tpm2.SigScheme{
-			Alg:  tpm2.AlgRSASSA,
-			Hash: tpm2.AlgSHA256,
-		})
-	} else if t.SignatureAlgorithm == x509.SHA256WithRSAPSS {
-		signed, err = tpm2.Sign(t.TpmDevice, t.Key.Handle(), "", digest[:], nil, &tpm2.SigScheme{
-			Alg:  tpm2.AlgRSAPSS,
-			Hash: tpm2.AlgSHA256,
-		})
-	} else if t.SignatureAlgorithm == x509.ECDSAWithSHA256 {
-
-		tsig, err := tpm2.Sign(t.TpmDevice, t.Key.Handle(), "", digest[:], nil, &tpm2.SigScheme{
-			Alg:  tpm2.AlgECDSA,
-			Hash: tpm2.AlgSHA256,
-		})
-
-		if err != nil {
-			fmt.Printf("Failed to sign: %v", err)
-			return nil, fmt.Errorf("sign:  Failed to sign %v", err)
-		}
-		// dont' use asn1
-		// sigStruct := struct{ R, S *big.Int }{tsig.ECC.R, tsig.ECC.S}
-		// return asn1.Marshal(sigStruct), nil
-
-		// https://github.com/golang-jwt/jwt/blob/main/ecdsa.go#L92
-		epub := t.Key.PublicKey().(*ecdsa.PublicKey)
-		curveBits := epub.Curve.Params().BitSize
-		keyBytes := curveBits / 8
-		if curveBits%8 > 0 {
-			keyBytes += 1
-		}
-		out := make([]byte, 2*keyBytes)
-		tsig.ECC.R.FillBytes(out[0:keyBytes])
-		tsig.ECC.S.FillBytes(out[keyBytes:])
-		return out, nil
-
-	} else {
-		return nil, errors.New("Unsupported signature type")
-	}
-
+	s, err := t.Key.GetSigner()
 	if err != nil {
-		fmt.Printf("Failed to sign: %v", err)
-		return []byte(""), fmt.Errorf("sign:  Failed to sign %v", err)
+		fmt.Printf("Failed to get signer: %v", err)
+		return nil, fmt.Errorf("sign:  Failed to get signer %v", err)
+	}
+	sig, err := s.Sign(rr, digest, opts)
+	if err != nil {
+		fmt.Printf("Failed to signer: %v", err)
+		return nil, fmt.Errorf("sign:  Failed to signer %v", err)
 	}
 
-	return signed.RSA.Signature, nil
-
+	switch t.Key.PublicKey().(type) {
+	case *rsa.PublicKey:
+		return sig, nil
+	case *ecdsa.PublicKey:
+		if t.ECCRawOutput {
+			epub := t.Key.PublicKey().(*ecdsa.PublicKey)
+			curveBits := epub.Params().BitSize
+			keyBytes := curveBits / 8
+			if curveBits%8 > 0 {
+				keyBytes += 1
+			}
+			out := make([]byte, 2*keyBytes)
+			var sigStruct struct{ R, S *big.Int }
+			_, err := asn1.Unmarshal(sig, &sigStruct)
+			if err != nil {
+				return nil, fmt.Errorf("tpmjwt: can't unmarshall ecc struct %v", err)
+			}
+			sigStruct.R.FillBytes(out[0:keyBytes])
+			sigStruct.S.FillBytes(out[keyBytes:])
+			return out, nil
+		}
+		return sig, err
+	default:
+		log.Printf("ERROR:  unsupported key type: %v", t.Key.PublicKey())
+		return nil, fmt.Errorf("sign:  Failed to signer %v", err)
+	}
 }
 
 func (t TPM) TLSCertificate() tls.Certificate {

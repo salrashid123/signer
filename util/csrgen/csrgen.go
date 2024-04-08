@@ -16,9 +16,13 @@ import (
 
 	"os"
 
-	salpem "github.com/salrashid123/signer/pem"
+	"github.com/google/go-tpm-tools/client"
+	"github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm/tpmutil"
+
+	//salpem "github.com/salrashid123/signer/pem"
+	saltpm "github.com/salrashid123/signer/tpm"
 	//salkms "github.com/salrashid123/signer/kms"
-	//saltpm "github.com/salrashid123/signer/tpm"
 	//salvault "github.com/salrashid123/signer/vault"
 )
 
@@ -40,23 +44,33 @@ ref: Golang to generate and sign a certificate using a CA and to also sign a CSR
 const ()
 
 var (
-	cfg = &certGenConfig{}
+	persistentHandle = flag.Uint("persistentHandle", 0x81008001, "rsa Handle value")
+	useECCRawFormat  = flag.Bool("useECCRawFormat", false, "Test the session policy")
+	cn               = flag.String("cn", "", "(required) CN= value for the certificate")
+	filename         = flag.String("filename", "csr.pem", "Filename to save the generated csr")
+	sni              = flag.String("sni", "server.domain.com", "SNI value in the csr generated csr")
+	tpmPath          = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
 )
-
-type certGenConfig struct {
-	flCN       string
-	flFileName string
-	flSNI      string
-}
 
 func main() {
 
-	// rwc, err := tpm2.OpenTPM(*tpmPath)
-	// k, err := client.LoadCachedKey(rwc, tpmutil.Handle(*persistentHandle), nil)
-	// r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-	// 	TpmDevice: rwc,
-	// 	Key      : k,
-	// })
+	flag.Parse()
+
+	rwc, err := tpm2.OpenTPM(*tpmPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	k, err := client.LoadCachedKey(rwc, tpmutil.Handle(*persistentHandle), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+		TpmDevice:    rwc,
+		Key:          k,
+		ECCRawOutput: *useECCRawFormat,
+	})
 
 	// r, err := salkms.NewKMSCrypto(&salkms.KMS{
 	// 	ProjectId:          "mineral-minutia-820",
@@ -77,9 +91,9 @@ func main() {
 	// 	SignatureAlgorithm: x509.SHA256WithRSA,
 	// })
 
-	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PrivatePEMFile: "../example/certs/client_rsa.key",
-	})
+	// r, err := salpem.NewPEMCrypto(&salpem.PEM{
+	// 	PrivatePEMFile: "../example/certs/client_rsa.key",
+	// })
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -90,18 +104,6 @@ func main() {
 
 func createCSR(t crypto.Signer) error {
 
-	flag.StringVar(&cfg.flCN, "cn", "", "(required) CN= value for the certificate")
-	flag.StringVar(&cfg.flFileName, "filename", "csr.pem", "Filename to save the generated csr")
-	flag.Parse()
-
-	argError := func(s string, v ...interface{}) {
-		//flag.PrintDefaults()
-		log.Fatalf("Invalid Argument error: "+s, v...)
-	}
-	if cfg.flCN == "" {
-		argError("-cn not specified")
-	}
-
 	log.Printf("Creating CSR")
 
 	var csrtemplate = x509.CertificateRequest{
@@ -111,26 +113,26 @@ func createCSR(t crypto.Signer) error {
 			Locality:           []string{"Mountain View"},
 			Province:           []string{"California"},
 			Country:            []string{"US"},
-			CommonName:         "server.domain.com",
+			CommonName:         *cn,
 		},
-		DNSNames: []string{"server.domain.com"},
+		DNSNames: []string{*sni},
 	}
 
 	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrtemplate, t)
 	if err != nil {
 		log.Fatalf("Failed to create CSR: %s", err)
 	}
-	certOut, err := os.Create(cfg.flFileName)
+	certOut, err := os.Create(*filename)
 	if err != nil {
-		log.Fatalf("Failed to open %s for writing: %s", cfg.flFileName, err)
+		log.Fatalf("Failed to open %s for writing: %s", *filename, err)
 	}
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes}); err != nil {
-		log.Fatalf("Failed to write data to %s: %s", cfg.flFileName, err)
+		log.Fatalf("Failed to write data to %s: %s", *filename, err)
 	}
 	if err := certOut.Close(); err != nil {
-		log.Fatalf("Error closing %s  %s", cfg.flFileName, err)
+		log.Fatalf("Error closing %s  %s", *filename, err)
 	}
-	log.Printf("wrote %s\n", cfg.flFileName)
+	log.Printf("wrote %s\n", *filename)
 
 	return nil
 }

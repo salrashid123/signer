@@ -181,7 +181,7 @@ func main() {
 
 - Run
 
-```
+```bash
 go run main.go
 ```
 
@@ -278,6 +278,7 @@ func main() {
 ```
 
 If you have a GCP Service Account in PEM format, you need to convert the key to RSA:
-```
+
+```bash
 $ openssl rsa -in sa_key.pem  -out sa_key-rsa.pem
 ```

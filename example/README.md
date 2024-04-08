@@ -25,34 +25,50 @@ gcloud kms keys create ec1 --keyring=kr --purpose=asymmetric-signing --location=
 
 example usage generates a new TPM unrestricted RSA key and sign,verify some data.
 
-to use, you can create a key directly which will create an RSA key and make it persistent to `0x81008000`
 
-```bash
-go run sign_verify_tpm/main.go --evict=true
-```
-
-you can also use `TPM2_TOOLS` to import an external RSA key and seal it to handle
-
-if you want to generate a key with `tpm2_tools` and make it persistent, 
+You can create the persistent handles using go-tpm or using  `tpm2_tools` and make it persistent, 
 
 ```bash
 cd example/
-## RSA
-tpm2_createprimary -C e -c rprimary.ctx
-tpm2_create -G rsa -u rkey.pub -r key.priv -C rprimary.ctx
-tpm2_load -C rprimary.ctx -u rkey.pub -r rkey.priv -c rkey.ctx
-tpm2_evictcontrol -C o -c key.ctx 0x81008001
 
+## for rsapersistentHandle
+
+ tpm2_createprimary -C e -c primary.ctx
+ tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+ tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+ tpm2_evictcontrol -C o -c key.ctx 0x81008001
+
+## for eccpersistentHandle
+
+ tpm2_createprimary -C e -c primary.ctx
+ tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx
+ tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+ tpm2_evictcontrol -C o -c key.ctx 0x81008002
+
+
+## for policyRSApersistentHandle
+
+ tpm2_startauthsession -S session.dat
+ tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
+ tpm2_flushcontext session.dat
+ tpm2_createprimary -C o -c primary2.ctx
+ tpm2_create -G rsa2048:rsassa:null -g sha256 -u rsa2.pub -r rsa2.priv -C primary2.ctx  -L policy.dat
+ tpm2_load -C primary2.ctx -u rsa2.pub -r rsa2.priv -c rsa2.ctx
+ tpm2_evictcontrol -C o -c rsa2.ctx 0x81008004
+
+## ===== 
+
+cd example
+
+## RSA
 go run sign_verify_tpm/main.go --rsapersistentHandle=0x81008001
 
-
-tpm2_createprimary -C e -c eprimary.ctx
-tpm2_create -G ecc -u ekey.pub -r ekey.priv -C eprimary.ctx
-tpm2_load -C eprimary.ctx -u ekey.pub -r ekey.priv -c ekey.ctx
-tpm2_evictcontrol -C o -c ekey.ctx 0x81008002
-
 ## ECC
-go run sign_verify_tpm/main.go --eccpersistentHandle=0x81008002
+go run sign_verify_tpm/main.go --eccpersistentHandle=0x81008002 
+
+## RSA with policy
+go run sign_verify_tpm/main.go --policyRSApersistentHandle=0x81008004
+
 ```
 
 Please note that we are persisting the handle here for easy access.  The more formal way is to save the entire chain of keys (which is a TODO)
@@ -149,7 +165,7 @@ edit `main.go`, set
 
 see
 
-```
+```bash
 Data to sign SHA256WithRSA foo
 Signed String: goom/u9h79moyVtH0nZfclX0w/Ef9ZnRO8ATEP81RqBeicne5+1Rab0Hb4AnfQ4csKab8Ar4Q/5mCFUMtlOaOHPy7IA3lnDmR069dgScmiPodRx0yfnZwRm2QXnCiSfqgylMEigZGhwyteg4vOSmTBRKKT0cLd7iXaCLr0XPMGNXloiE+yDXLkdvRroYTEiIzDRF6j9PYTBnsjqBln6yl5Bk54K3ugql5k/oQmfSfWyKqASYDjpNrGlH9k8kDT344lwMAPGZgnzpymgfD03kDj3Rbq7UBOgAo2XyX/SOw00HK339FlkyZeubOJBHE8BwEKRg1AoiFsVq9UdD6DrFkA==
 Signed String SHA256WithRSA verified

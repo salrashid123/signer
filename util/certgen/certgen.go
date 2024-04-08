@@ -7,7 +7,6 @@ package main
 import (
 	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -17,9 +16,12 @@ import (
 	"os"
 	"time"
 
-	salpem "github.com/salrashid123/signer/pem"
+	//salpem "github.com/salrashid123/signer/pem"
 	//salkms "github.com/salrashid123/signer/kms"
-	//saltpm "github.com/salrashid123/signer/tpm"
+	"github.com/google/go-tpm-tools/client"
+	"github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm/tpmutil"
+	saltpm "github.com/salrashid123/signer/tpm"
 	//salvault "github.com/salrashid123/signer/vault"
 )
 
@@ -51,23 +53,33 @@ $ openssl x509 -in public.crt -text -noout
 const ()
 
 var (
-	cfg = &certGenConfig{}
+	persistentHandle = flag.Uint("persistentHandle", 0x81008001, "rsa Handle value")
+
+	useECCRawFormat = flag.Bool("useECCRawFormat", false, "Test the session policy")
+
+	cn       = flag.String("cn", "", "(required) CN= value for the certificate")
+	filename = flag.String("filename", "cert.pem", "Filename to save the generated csr")
+	sni      = flag.String("sni", "server.domain.com", "SNI value in the csr generated csr")
+	tpmPath  = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
 )
 
-type certGenConfig struct {
-	flCN       string
-	flFileName string
-	flSNI      string
-}
-
 func main() {
+	flag.Parse()
+	rwc, err := tpm2.OpenTPM(*tpmPath)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// rwc, err := tpm2.OpenTPM(*tpmPath)
-	// k, err := client.LoadCachedKey(rwc, tpmutil.Handle(*persistentHandle), nil)
-	// r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-	// 	TpmDevice: rwc,
-	// 	Key      : k,
-	// })
+	k, err := client.LoadCachedKey(rwc, tpmutil.Handle(*persistentHandle), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+		TpmDevice:    rwc,
+		Key:          k,
+		ECCRawOutput: *useECCRawFormat,
+	})
 
 	// r, err := salkms.NewKMSCrypto(&salkms.KMS{
 	// 	ProjectId:          "mineral-minutia-820",
@@ -88,9 +100,9 @@ func main() {
 	// 	SignatureAlgorithm: x509.SHA256WithRSA,
 	// })
 
-	r, err := salpem.NewPEMCrypto(&salpem.PEM{
-		PrivatePEMFile: "../example/certs/client_rsa.key",
-	})
+	// r, err := salpem.NewPEMCrypto(&salpem.PEM{
+	// 	PrivatePEMFile: "../example/certs/client_rsa.key",
+	// })
 
 	if err != nil {
 		log.Fatal(err)
@@ -101,18 +113,6 @@ func main() {
 }
 
 func createSelfSignedPubCert(t crypto.Signer) error {
-
-	flag.StringVar(&cfg.flCN, "cn", "", "(required) CN= value for the certificate")
-	flag.StringVar(&cfg.flFileName, "filename", "cert.pem", "Filename to save the generated cert")
-	flag.Parse()
-
-	argError := func(s string, v ...interface{}) {
-		//flag.PrintDefaults()
-		log.Fatalf("Invalid Argument error: "+s, v...)
-	}
-	if cfg.flCN == "" {
-		argError("-cn not specified")
-	}
 
 	log.Printf("Creating public x509")
 
@@ -135,33 +135,32 @@ func createSelfSignedPubCert(t crypto.Signer) error {
 			Locality:           []string{"Mountain View"},
 			Province:           []string{"California"},
 			Country:            []string{"US"},
-			CommonName:         cfg.flCN,
+			CommonName:         *cn,
 		},
 		NotBefore:             notBefore,
 		NotAfter:              notAfter,
-		DNSNames:              []string{cfg.flCN},
+		DNSNames:              []string{*sni},
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  false,
 	}
 
-	ckey := t.Public().(*rsa.PublicKey)
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, ckey, t)
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, t.Public(), t)
 	if err != nil {
 		log.Fatalf("Failed to create certificate: %s", err)
 	}
-	certOut, err := os.Create(cfg.flFileName)
+	certOut, err := os.Create(*filename)
 	if err != nil {
-		log.Fatalf("Failed to open %s for writing: %s", cfg.flFileName, err)
+		log.Fatalf("Failed to open %s for writing: %s", *filename, err)
 	}
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
-		log.Fatalf("Failed to write data to %s: %s", cfg.flFileName, err)
+		log.Fatalf("Failed to write data to %s: %s", *filename, err)
 	}
 	if err := certOut.Close(); err != nil {
-		log.Fatalf("Error closing %s  %s", cfg.flFileName, err)
+		log.Fatalf("Error closing %s  %s", *filename, err)
 	}
-	log.Printf("wrote %s\n", cfg.flFileName)
+	log.Printf("wrote %s\n", *filename)
 
 	return nil
 }
