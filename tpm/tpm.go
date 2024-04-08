@@ -96,6 +96,18 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		fmt.Printf("Failed to get signer: %v", err)
 		return nil, fmt.Errorf("sign:  Failed to get signer %v", err)
 	}
+	// https://github.com/google/go-tpm-tools/blob/8c9ef50b83f81066791bdd19b27edaa22f29fd53/client/signer.go#L46C32-L46C49
+	if t.Key.PublicArea().RSAParameters.Sign.Alg == tpm2.AlgRSAPSS {
+		h, err := t.Key.PublicArea().NameAlg.Hash()
+		if err != nil {
+			fmt.Printf("Failed to get hash for pss: %v", err)
+			return nil, fmt.Errorf("sign:  hash for pss %v", err)
+		}
+		opts = &rsa.PSSOptions{
+			Hash:       h,
+			SaltLength: rsa.PSSSaltLengthAuto,
+		}
+	}
 	sig, err := s.Sign(rr, digest, opts)
 	if err != nil {
 		fmt.Printf("Failed to signer: %v", err)
