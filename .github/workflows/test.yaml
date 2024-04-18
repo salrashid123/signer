@@ -1,0 +1,24 @@
+name: Go Test for TPM
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'tpm/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'tpm/go.mod'
+
+      - name: Run tests
+        run: go test -v ./...
+        working-directory: tpm
