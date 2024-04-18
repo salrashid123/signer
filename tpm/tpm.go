@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm/tpmutil"
 )
 
 const ()
@@ -38,11 +39,14 @@ type TPM struct {
 	crypto.Signer
 
 	Key            *client.Key        // load a key from handle
-	TpmDevice      io.ReadWriteCloser // TPM Device path /dev/tpm0
+	TpmDevice      io.ReadWriteCloser // TPM read closer
+	TpmPath        string             // path to the ptm device /dev/tpm0
+	KeyHandle      uint32             // path to the ptm device /dev/tpm0
 	ECCRawOutput   bool               // for ECC keys, output raw signatures. If false, signature is ans1 formatted
 	refreshMutex   sync.Mutex
 	PublicCertFile string      // a provided public x509 certificate for the signer
 	ExtTLSConfig   *tls.Config // override tls.Config values
+	PCRs           []int
 
 	x509Certificate x509.Certificate
 	publicKey       crypto.PublicKey
@@ -52,8 +56,20 @@ type TPM struct {
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
 
-	if conf.TpmDevice == nil || conf.Key == nil {
-		return TPM{}, fmt.Errorf(" TpmDevice and Key must be set")
+	if conf.Key == nil && conf.KeyHandle == 0 {
+		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: Key or KeyHandle must be specified")
+	}
+
+	if conf.TpmDevice != nil && conf.TpmPath != "" {
+		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: one of TPMTokenConfig.TPMDevice,  TPMTokenConfig.TPMPath must be set")
+	}
+
+	if conf.TpmDevice != nil && conf.Key == nil {
+		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google:  if TPMTokenConfig.TPMDevice is specified, a Key must be set")
+	}
+
+	if conf.TpmPath != "" && conf.KeyHandle == 0 {
+		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google:  if TPMTokenConfig.TPMPath is specified, a KeyHandle must be set")
 	}
 	if conf.ExtTLSConfig != nil {
 		if len(conf.ExtTLSConfig.Certificates) > 0 {
@@ -71,15 +87,43 @@ func (t TPM) Public() crypto.PublicKey {
 	if t.publicKey == nil {
 		t.refreshMutex.Lock()
 		defer t.refreshMutex.Unlock()
-		pub, _, _, err := tpm2.ReadPublic(t.TpmDevice, t.Key.Handle())
+
+		var rwc io.ReadWriteCloser
+		var k *client.Key
+		if t.TpmDevice == nil {
+			var err error
+			rwc, err = tpm2.OpenTPM(t.TpmPath)
+			if err != nil {
+				fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
+				return nil
+			}
+			defer rwc.Close()
+			pcrsession, err := client.NewPCRSession(rwc, tpm2.PCRSelection{tpm2.AlgSHA256, t.PCRs})
+			if err != nil {
+				fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
+				return nil
+			}
+			k, err = client.LoadCachedKey(rwc, tpmutil.Handle(t.KeyHandle), pcrsession)
+			if err != nil {
+				fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
+				return nil
+			}
+			defer pcrsession.Close()
+			defer k.Close()
+		} else {
+			rwc = t.TpmDevice
+			k = t.Key
+		}
+
+		pub, _, _, err := tpm2.ReadPublic(rwc, k.Handle())
 		if err != nil {
 			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-			return fmt.Errorf("fmt: Unable to Read Public data from TPM: %v", err)
+			return nil
 		}
 		pubKey, err := pub.Key()
 		if err != nil {
 			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-			return fmt.Errorf("fmt: unable to Read Public data from TPM: %v", err)
+			return nil
 		}
 		t.publicKey = pubKey
 	}
@@ -89,37 +133,65 @@ func (t TPM) Public() crypto.PublicKey {
 func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
-
+	var rwc io.ReadWriteCloser
+	var k *client.Key
+	if t.TpmDevice == nil {
+		var err error
+		rwc, err = tpm2.OpenTPM(t.TpmPath)
+		if err != nil {
+			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
+			return nil, fmt.Errorf("fmt: Unable to Read Public data from TPM: %v", err)
+		}
+		defer rwc.Close()
+		pcrsession, err := client.NewPCRSession(rwc, tpm2.PCRSelection{tpm2.AlgSHA256, t.PCRs})
+		if err != nil {
+			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
+			return nil, fmt.Errorf("fmt: Unable to Read Public data from TPM: %v", err)
+		}
+		k, err = client.LoadCachedKey(rwc, tpmutil.Handle(t.KeyHandle), pcrsession)
+		if err != nil {
+			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
+			return nil, fmt.Errorf("fmt: Unable to Read Public data from TPM: %v", err)
+		}
+		defer pcrsession.Close()
+		defer k.Close()
+	} else {
+		rwc = t.TpmDevice
+		k = t.Key
+	}
 	var err error
-	s, err := t.Key.GetSigner()
+	s, err := k.GetSigner()
 	if err != nil {
 		fmt.Printf("Failed to get signer: %v", err)
 		return nil, fmt.Errorf("sign:  Failed to get signer %v", err)
 	}
-	// https://github.com/google/go-tpm-tools/blob/8c9ef50b83f81066791bdd19b27edaa22f29fd53/client/signer.go#L46C32-L46C49
-	if t.Key.PublicArea().RSAParameters.Sign.Alg == tpm2.AlgRSAPSS {
-		h, err := t.Key.PublicArea().NameAlg.Hash()
-		if err != nil {
-			fmt.Printf("Failed to get hash for pss: %v", err)
-			return nil, fmt.Errorf("sign:  hash for pss %v", err)
-		}
-		opts = &rsa.PSSOptions{
-			Hash:       h,
-			SaltLength: rsa.PSSSaltLengthAuto,
+
+	if k.PublicArea().RSAParameters != nil {
+		if k.PublicArea().RSAParameters.Sign.Alg == tpm2.AlgRSAPSS {
+			h, err := t.Key.PublicArea().NameAlg.Hash()
+			if err != nil {
+				fmt.Printf("Failed to get hash for pss: %v", err)
+				return nil, fmt.Errorf("sign:  hash for pss %v", err)
+			}
+			opts = &rsa.PSSOptions{
+				Hash:       h,
+				SaltLength: rsa.PSSSaltLengthAuto,
+			}
 		}
 	}
+
 	sig, err := s.Sign(rr, digest, opts)
 	if err != nil {
 		fmt.Printf("Failed to signer: %v", err)
 		return nil, fmt.Errorf("sign:  Failed to signer %v", err)
 	}
 
-	switch t.Key.PublicKey().(type) {
+	switch k.PublicKey().(type) {
 	case *rsa.PublicKey:
 		return sig, nil
 	case *ecdsa.PublicKey:
 		if t.ECCRawOutput {
-			epub := t.Key.PublicKey().(*ecdsa.PublicKey)
+			epub := k.PublicKey().(*ecdsa.PublicKey)
 			curveBits := epub.Params().BitSize
 			keyBytes := curveBits / 8
 			if curveBits%8 > 0 {
@@ -137,7 +209,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		}
 		return sig, err
 	default:
-		log.Printf("ERROR:  unsupported key type: %v", t.Key.PublicKey())
+		log.Printf("ERROR:  unsupported key type: %v", k.PublicKey())
 		return nil, fmt.Errorf("sign:  Failed to signer %v", err)
 	}
 }

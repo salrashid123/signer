@@ -61,15 +61,31 @@ cd example/
 cd example
 
 ## RSA
-go run sign_verify_tpm/main.go --rsapersistentHandle=0x81008001
+go run sign_verify_tpm/rsa/main.go --handle=0x81008001
 
 ## ECC
-go run sign_verify_tpm/main.go --eccpersistentHandle=0x81008002 
+go run sign_verify_tpm/ecc/main.go --handle=0x81008002 
 
 ## RSA with policy
-go run sign_verify_tpm/main.go --policyRSApersistentHandle=0x81008004
+go run sign_verify_tpm/policy/main.go --handle=0x81008004
 
 ```
+
+For TPM Signer, there are two modes of operation:
+
+* managed externally
+
+  The TPM device is managed externally outside of the signer.  You have to instantiate the TPM device ReadWriteCloser and client.Key outside of the library and pass that in.
+
+  The advantage of this is you control it opening and closing.  You must close the key and closer before calling another signing operation
+
+* managed by library
+
+  This is the preferred mode: you just pass the uint32 handle for the key and the path to the tpm device as string and the library opens/closes it as needed.
+
+  If the device is busy or the TPM is in use during invocation, the operation will fail.
+  
+TODO use a backoff retry similar to [tpmrand](https://github.com/salrashid123/tpmrand) to prevent contention.
 
 Please note that we are persisting the handle here for easy access.  The more formal way is to save the entire chain of keys (which is a TODO)
 
