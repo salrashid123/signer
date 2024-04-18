@@ -116,6 +116,7 @@ func createCSR(t crypto.Signer) error {
 			CommonName:         *cn,
 		},
 		DNSNames: []string{*sni},
+		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
 	}
 
 	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrtemplate, t)
