@@ -12,7 +12,7 @@ Use the signer to create a TLS session, sign CA/CSRs, generate signed url or jus
 Some implementations:
 
 - `kms/`:  Sample that implements `crypto.Signer` using Google Cloud KMS.
-- `tpm/`:  Sample that implements `crypto.Signer`  using `go-tpm` library for Trusted Platform Module    This is an alternative to [go-tpm-tools.client.GetSigner()](https://pkg.go.dev/github.com/google/go-tpm-tools/client#Key.GetSigner)
+- `tpm/`:  Sample that implements `crypto.Signer`  using `go-tpm` library for Trusted Platform Module    This internally uses [go-tpm-tools.client.GetSigner()](https://pkg.go.dev/github.com/google/go-tpm-tools/client#Key.GetSigner)
 
 - `util/certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 - `util/csrgen/`:  Library that generates a CSR using the key in KMS or TPM 
