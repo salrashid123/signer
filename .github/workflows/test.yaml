@@ -1,6 +1,7 @@
 name: Go Test for TPM
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
