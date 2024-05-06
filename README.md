@@ -17,14 +17,13 @@ Some implementations:
 - `util/certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 - `util/csrgen/`:  Library that generates a CSR using the key in KMS or TPM 
 
-
 see the [example/](example/) folder for more information.
 
 ### Usage Signer
 
 Initialize a signer and directly use `.sign()` as shown in this sample for GCS SignedURL:
 
-- [GCS SignedURL for KMS](https://github.com/salrashid123/kms_service_accounts/blob/master/main.go#L56)
+* [GCS SignedURL for KMS](https://github.com/salrashid123/kms_service_accounts/blob/master/main.go#L56)
 * [GCS signedURLs and GCP Authentication with Trusted Platform Module](https://github.com/salrashid123/gcs_tpm)
 
 ### TPM Signer Device management
@@ -66,6 +65,15 @@ see `example/mtls` folder
 ### Sign/Verify PSS
 
 see `example/sign_verify` folder
+
+
+### Sign/Verify ECC
+
+The default output signature format for ECC based keys is ASN1 format as described in [ecdsa.SignASN1](https://pkg.go.dev/crypto/ecdsa#Sign)
+
+If you need the raw output format, set `ECCRawOutput:       true` in the config.
+
+See the examples folder for usage
 
 ### Usage: Generate self-signed certificate
 

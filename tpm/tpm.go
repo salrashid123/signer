@@ -18,7 +18,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"os"
 	"sync"
@@ -139,18 +138,15 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		var err error
 		rwc, err = tpm2.OpenTPM(t.TpmPath)
 		if err != nil {
-			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
 			return nil, fmt.Errorf("fmt: Unable to Read Public data from TPM: %v", err)
 		}
 		defer rwc.Close()
 		pcrsession, err := client.NewPCRSession(rwc, tpm2.PCRSelection{tpm2.AlgSHA256, t.PCRs})
 		if err != nil {
-			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
 			return nil, fmt.Errorf("fmt: Unable to Read Public data from TPM: %v", err)
 		}
 		k, err = client.LoadCachedKey(rwc, tpmutil.Handle(t.KeyHandle), pcrsession)
 		if err != nil {
-			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
 			return nil, fmt.Errorf("fmt: Unable to Read Public data from TPM: %v", err)
 		}
 		defer pcrsession.Close()
@@ -162,7 +158,6 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	var err error
 	s, err := k.GetSigner()
 	if err != nil {
-		fmt.Printf("Failed to get signer: %v", err)
 		return nil, fmt.Errorf("sign:  Failed to get signer %v", err)
 	}
 
@@ -170,7 +165,6 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		if k.PublicArea().RSAParameters.Sign.Alg == tpm2.AlgRSAPSS {
 			h, err := t.Key.PublicArea().NameAlg.Hash()
 			if err != nil {
-				fmt.Printf("Failed to get hash for pss: %v", err)
 				return nil, fmt.Errorf("sign:  hash for pss %v", err)
 			}
 			opts = &rsa.PSSOptions{
@@ -182,7 +176,6 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 
 	sig, err := s.Sign(rr, digest, opts)
 	if err != nil {
-		fmt.Printf("Failed to signer: %v", err)
 		return nil, fmt.Errorf("sign:  Failed to signer %v", err)
 	}
 
@@ -209,8 +202,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		}
 		return sig, err
 	default:
-		log.Printf("ERROR:  unsupported key type: %v", k.PublicKey())
-		return nil, fmt.Errorf("sign:  Failed to signer %v", err)
+		return nil, fmt.Errorf("sign:  unsupported key type: %v", k.PublicKey())
 	}
 }
 

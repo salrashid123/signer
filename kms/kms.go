@@ -6,11 +6,14 @@ package kms
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"io"
+	"math/big"
 	"os"
 	"sync"
 
@@ -43,6 +46,7 @@ type KMS struct {
 	KeyRing            string
 	Key                string
 	KeyVersion         string
+	ECCRawOutput       bool // for ECC keys, output raw signatures. If false, signature is ans1 formatted
 	SignatureAlgorithm x509.SignatureAlgorithm
 }
 
@@ -175,6 +179,24 @@ func (t KMS) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	if err != nil {
 		fmt.Printf("Error signing with kms client %v", err)
 		return nil, err
+	}
+
+	if t.ECCRawOutput {
+		epub := t.Public().(*ecdsa.PublicKey)
+		curveBits := epub.Params().BitSize
+		keyBytes := curveBits / 8
+		if curveBits%8 > 0 {
+			keyBytes += 1
+		}
+		out := make([]byte, 2*keyBytes)
+		var sigStruct struct{ R, S *big.Int }
+		_, err := asn1.Unmarshal(dresp.Signature, &sigStruct)
+		if err != nil {
+			return nil, fmt.Errorf("tpmjwt: can't unmarshall ecc struct %v", err)
+		}
+		sigStruct.R.FillBytes(out[0:keyBytes])
+		sigStruct.S.FillBytes(out[keyBytes:])
+		return out, nil
 	}
 	return dresp.Signature, nil
 
