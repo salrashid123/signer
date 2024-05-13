@@ -56,15 +56,13 @@ If you just want to issue JWT's, see
 
 ### Usage TLS
 
-see `example/mtls` folder
-
 * for tpm see [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
 * for kms see [mTLS with Google Cloud KMS](https://github.com/salrashid123/kms_golang_signer)
 
 
 ### Sign/Verify PSS
 
-see `example/sign_verify` folder
+see `example/sign_verify*` folders
 
 
 ### Sign/Verify ECC

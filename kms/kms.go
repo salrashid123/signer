@@ -39,7 +39,6 @@ type KMS struct {
 	crypto.Signer // https://golang.org/pkg/crypto/#Signer
 
 	PublicKeyFile      string
-	ExtTLSConfig       *tls.Config
 	publicKey          crypto.PublicKey
 	ProjectId          string
 	LocationId         string
@@ -61,15 +60,6 @@ func NewKMSCrypto(conf *KMS) (KMS, error) {
 
 	if conf.ProjectId == "" {
 		return KMS{}, fmt.Errorf("ProjectID cannot be null")
-	}
-	if conf.ExtTLSConfig != nil {
-		if len(conf.ExtTLSConfig.Certificates) > 0 {
-			return KMS{}, fmt.Errorf("certificates value in ExtTLSConfig Ignored")
-		}
-
-		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
-			return KMS{}, fmt.Errorf("cipherSuites value in ExtTLSConfig Ignored")
-		}
 	}
 	return *conf, nil
 }
@@ -131,19 +121,6 @@ func (t KMS) TLSCertificate() tls.Certificate {
 		PrivateKey:  privKey,
 		Leaf:        &x509Certificate,
 		Certificate: [][]byte{x509Certificate.Raw},
-	}
-}
-
-func (t KMS) TLSConfig() *tls.Config {
-	return &tls.Config{
-		Certificates: []tls.Certificate{t.TLSCertificate()},
-		RootCAs:      t.ExtTLSConfig.RootCAs,
-		ClientCAs:    t.ExtTLSConfig.ClientCAs,
-		ClientAuth:   t.ExtTLSConfig.ClientAuth,
-		ServerName:   t.ExtTLSConfig.ServerName,
-
-		CipherSuites: t.ExtTLSConfig.CipherSuites,
-		MaxVersion:   t.ExtTLSConfig.MaxVersion,
 	}
 }
 

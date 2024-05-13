@@ -43,8 +43,7 @@ type TPM struct {
 	KeyHandle      uint32             // path to the ptm device /dev/tpm0
 	ECCRawOutput   bool               // for ECC keys, output raw signatures. If false, signature is ans1 formatted
 	refreshMutex   sync.Mutex
-	PublicCertFile string      // a provided public x509 certificate for the signer
-	ExtTLSConfig   *tls.Config // override tls.Config values
+	PublicCertFile string // a provided public x509 certificate for the signer
 	PCRs           []int
 
 	x509Certificate x509.Certificate
@@ -69,15 +68,6 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 
 	if conf.TpmPath != "" && conf.KeyHandle == 0 {
 		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google:  if TPMTokenConfig.TPMPath is specified, a KeyHandle must be set")
-	}
-	if conf.ExtTLSConfig != nil {
-		if len(conf.ExtTLSConfig.Certificates) > 0 {
-			return TPM{}, fmt.Errorf("certificates value in ExtTLSConfig Ignored")
-		}
-
-		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
-			return TPM{}, fmt.Errorf("cipherSuites value in ExtTLSConfig Ignored")
-		}
 	}
 	return *conf, nil
 }
@@ -235,20 +225,5 @@ func (t TPM) TLSCertificate() tls.Certificate {
 		PrivateKey:  privKey,
 		Leaf:        &t.x509Certificate,
 		Certificate: [][]byte{t.x509Certificate.Raw},
-	}
-}
-
-func (t TPM) TLSConfig() *tls.Config {
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{t.TLSCertificate()},
-
-		RootCAs:      t.ExtTLSConfig.RootCAs,
-		ClientCAs:    t.ExtTLSConfig.ClientCAs,
-		ClientAuth:   t.ExtTLSConfig.ClientAuth,
-		ServerName:   t.ExtTLSConfig.ServerName,
-		CipherSuites: t.ExtTLSConfig.CipherSuites,
-		MaxVersion:   t.ExtTLSConfig.MaxVersion,
-		MinVersion:   t.ExtTLSConfig.MinVersion,
 	}
 }
