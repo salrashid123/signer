@@ -46,7 +46,7 @@ type TPM struct {
 	PublicCertFile string // a provided public x509 certificate for the signer
 	PCRs           []int
 
-	x509Certificate x509.Certificate
+	x509Certificate *x509.Certificate
 	publicKey       crypto.PublicKey
 }
 
@@ -194,24 +194,26 @@ func (t TPM) TLSCertificate() (tls.Certificate, error) {
 		return tls.Certificate{}, fmt.Errorf("Public X509 certificate not specified")
 	}
 
-	pubPEM, err := os.ReadFile(t.PublicCertFile)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("Unable to read public certificate file %v", err)
-	}
-	block, _ := pem.Decode([]byte(pubPEM))
-	if block == nil {
-		return tls.Certificate{}, fmt.Errorf("failed to parse PEM block containing the public key")
-	}
-	pub, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("Unable to read public certificate file %v", err)
+	if t.x509Certificate == nil {
+		pubPEM, err := os.ReadFile(t.PublicCertFile)
+		if err != nil {
+			return tls.Certificate{}, fmt.Errorf("Unable to read public certificate file %v", err)
+		}
+		block, _ := pem.Decode([]byte(pubPEM))
+		if block == nil {
+			return tls.Certificate{}, fmt.Errorf("failed to parse PEM block containing the public key")
+		}
+		pub, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return tls.Certificate{}, fmt.Errorf("Unable to read public certificate file %v", err)
+		}
+		t.x509Certificate = pub
 	}
 
-	t.x509Certificate = *pub
 	var privKey crypto.PrivateKey = t
 	return tls.Certificate{
 		PrivateKey:  privKey,
-		Leaf:        &t.x509Certificate,
+		Leaf:        t.x509Certificate,
 		Certificate: [][]byte{t.x509Certificate.Raw},
 	}, nil
 }

@@ -29,10 +29,6 @@ const ()
 var (
 	refreshMutex    = &sync.Mutex{}
 	x509Certificate x509.Certificate
-
-	rootCAs    *x509.CertPool
-	clientCAs  *x509.CertPool
-	clientAuth *tls.ClientAuthType
 )
 
 type KMS struct {
@@ -45,6 +41,7 @@ type KMS struct {
 	KeyRing            string
 	Key                string
 	KeyVersion         string
+	x509Certificate    *x509.Certificate
 	ECCRawOutput       bool // for ECC keys, output raw signatures. If false, signature is ans1 formatted
 	SignatureAlgorithm x509.SignatureAlgorithm
 }
@@ -59,7 +56,7 @@ func NewKMSCrypto(conf *KMS) (KMS, error) {
 	}
 
 	if conf.ProjectId == "" {
-		return KMS{}, fmt.Errorf("ProjectID cannot be null")
+		return KMS{}, fmt.Errorf("projectID cannot be null")
 	}
 
 	ctx := context.Background()
@@ -67,19 +64,19 @@ func NewKMSCrypto(conf *KMS) (KMS, error) {
 
 	kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
 	if err != nil {
-		return KMS{}, fmt.Errorf("Error getting kms client %v", err)
+		return KMS{}, fmt.Errorf("error getting kms client %v", err)
 	}
 	defer kmsClient.Close()
 
 	dresp, err := kmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: parentName})
 	if err != nil {
-		return KMS{}, fmt.Errorf("Error getting GetPublicKey %v", err)
+		return KMS{}, fmt.Errorf("error getting GetPublicKey %v", err)
 	}
 	pubKeyBlock, _ := pem.Decode([]byte(dresp.Pem))
 
 	conf.publicKey, err = x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
 	if err != nil {
-		return KMS{}, fmt.Errorf("Error parsing PublicKey %v", err)
+		return KMS{}, fmt.Errorf("error parsing PublicKey %v", err)
 	}
 
 	return *conf, nil
@@ -95,23 +92,26 @@ func (t KMS) TLSCertificate() (tls.Certificate, error) {
 		return tls.Certificate{}, fmt.Errorf("public X509 certificate not specified")
 	}
 
-	pubPEM, err := os.ReadFile(t.PublicKeyFile)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("unable to read keys %v", err)
+	if t.x509Certificate == nil {
+		pubPEM, err := os.ReadFile(t.PublicKeyFile)
+		if err != nil {
+			return tls.Certificate{}, fmt.Errorf("unable to read keys %v", err)
+		}
+		block, _ := pem.Decode([]byte(pubPEM))
+		if block == nil {
+			return tls.Certificate{}, fmt.Errorf("failed to parse PEM block containing the public key")
+		}
+		pub, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return tls.Certificate{}, fmt.Errorf("failed to parse public key: %v ", err)
+		}
+		t.x509Certificate = pub
 	}
-	block, _ := pem.Decode([]byte(pubPEM))
-	if block == nil {
-		return tls.Certificate{}, fmt.Errorf("failed to parse PEM block containing the public key")
-	}
-	pub, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("failed to parse public key: %v ", err)
-	}
-	x509Certificate = *pub
+
 	var privKey crypto.PrivateKey = t
 	return tls.Certificate{
 		PrivateKey:  privKey,
-		Leaf:        &x509Certificate,
+		Leaf:        t.x509Certificate,
 		Certificate: [][]byte{x509Certificate.Raw},
 	}, nil
 }
