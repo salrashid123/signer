@@ -61,59 +61,51 @@ func NewKMSCrypto(conf *KMS) (KMS, error) {
 	if conf.ProjectId == "" {
 		return KMS{}, fmt.Errorf("ProjectID cannot be null")
 	}
+
+	ctx := context.Background()
+	parentName := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%s", conf.ProjectId, conf.LocationId, conf.KeyRing, conf.Key, conf.KeyVersion)
+
+	kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
+	if err != nil {
+		return KMS{}, fmt.Errorf("Error getting kms client %v", err)
+	}
+	defer kmsClient.Close()
+
+	dresp, err := kmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: parentName})
+	if err != nil {
+		return KMS{}, fmt.Errorf("Error getting GetPublicKey %v", err)
+	}
+	pubKeyBlock, _ := pem.Decode([]byte(dresp.Pem))
+
+	conf.publicKey, err = x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
+	if err != nil {
+		return KMS{}, fmt.Errorf("Error parsing PublicKey %v", err)
+	}
+
 	return *conf, nil
 }
 
 func (t KMS) Public() crypto.PublicKey {
-	if t.publicKey == nil {
-		ctx := context.Background()
-		parentName := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%s", t.ProjectId, t.LocationId, t.KeyRing, t.Key, t.KeyVersion)
-
-		kmsClient, err := cloudkms.NewKeyManagementClient(ctx)
-		if err != nil {
-			fmt.Printf("Error getting kms client %v", err)
-			return nil
-		}
-		defer kmsClient.Close()
-
-		dresp, err := kmsClient.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{Name: parentName})
-		if err != nil {
-			fmt.Printf("Error getting GetPublicKey %v", err)
-			return nil
-		}
-		pubKeyBlock, _ := pem.Decode([]byte(dresp.Pem))
-
-		t.publicKey, err = x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
-		if err != nil {
-			fmt.Printf("Error parsing PublicKey %v", err)
-			return nil
-		}
-	}
-
 	return t.publicKey
 }
 
-func (t KMS) TLSCertificate() tls.Certificate {
+func (t KMS) TLSCertificate() (tls.Certificate, error) {
 
 	if t.PublicKeyFile == "" {
-		fmt.Printf("Public X509 certificate not specified")
-		return tls.Certificate{}
+		return tls.Certificate{}, fmt.Errorf("public X509 certificate not specified")
 	}
 
 	pubPEM, err := os.ReadFile(t.PublicKeyFile)
 	if err != nil {
-		fmt.Printf("Unable to read keys %v", err)
-		return tls.Certificate{}
+		return tls.Certificate{}, fmt.Errorf("unable to read keys %v", err)
 	}
 	block, _ := pem.Decode([]byte(pubPEM))
 	if block == nil {
-		fmt.Printf("failed to parse PEM block containing the public key")
-		return tls.Certificate{}
+		return tls.Certificate{}, fmt.Errorf("failed to parse PEM block containing the public key")
 	}
 	pub, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		fmt.Printf("failed to parse public key: " + err.Error())
-		return tls.Certificate{}
+		return tls.Certificate{}, fmt.Errorf("failed to parse public key: %v ", err)
 	}
 	x509Certificate = *pub
 	var privKey crypto.PrivateKey = t
@@ -121,7 +113,7 @@ func (t KMS) TLSCertificate() tls.Certificate {
 		PrivateKey:  privKey,
 		Leaf:        &x509Certificate,
 		Certificate: [][]byte{x509Certificate.Raw},
-	}
+	}, nil
 }
 
 func (t KMS) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {

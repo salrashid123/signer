@@ -69,53 +69,45 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 	if conf.TpmPath != "" && conf.KeyHandle == 0 {
 		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google:  if TPMTokenConfig.TPMPath is specified, a KeyHandle must be set")
 	}
+
+	var rwc io.ReadWriteCloser
+	var k *client.Key
+	if conf.TpmDevice == nil {
+		var err error
+		rwc, err = tpm2.OpenTPM(conf.TpmPath)
+		if err != nil {
+			return TPM{}, fmt.Errorf("google: Unable to Read Public data from TPM: %v", err)
+		}
+		defer rwc.Close()
+		pcrsession, err := client.NewPCRSession(rwc, tpm2.PCRSelection{tpm2.AlgSHA256, conf.PCRs})
+		if err != nil {
+			return TPM{}, fmt.Errorf("google: Unable to Read Public data from TPM: %v", err)
+		}
+		k, err = client.LoadCachedKey(rwc, tpmutil.Handle(conf.KeyHandle), pcrsession)
+		if err != nil {
+			return TPM{}, fmt.Errorf("google: Unable to Read Public data from TPM: %v", err)
+		}
+		defer pcrsession.Close()
+		defer k.Close()
+	} else {
+		rwc = conf.TpmDevice
+		k = conf.Key
+	}
+
+	pub, _, _, err := tpm2.ReadPublic(rwc, k.Handle())
+	if err != nil {
+		return TPM{}, fmt.Errorf("google: Unable to Read Public data from TPM: %v", err)
+	}
+	pubKey, err := pub.Key()
+	if err != nil {
+		return TPM{}, fmt.Errorf("google: Unable to Read Public data from TPM: %v", err)
+	}
+	conf.publicKey = pubKey
+
 	return *conf, nil
 }
 
 func (t TPM) Public() crypto.PublicKey {
-	if t.publicKey == nil {
-		t.refreshMutex.Lock()
-		defer t.refreshMutex.Unlock()
-
-		var rwc io.ReadWriteCloser
-		var k *client.Key
-		if t.TpmDevice == nil {
-			var err error
-			rwc, err = tpm2.OpenTPM(t.TpmPath)
-			if err != nil {
-				fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-				return nil
-			}
-			defer rwc.Close()
-			pcrsession, err := client.NewPCRSession(rwc, tpm2.PCRSelection{tpm2.AlgSHA256, t.PCRs})
-			if err != nil {
-				fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-				return nil
-			}
-			k, err = client.LoadCachedKey(rwc, tpmutil.Handle(t.KeyHandle), pcrsession)
-			if err != nil {
-				fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-				return nil
-			}
-			defer pcrsession.Close()
-			defer k.Close()
-		} else {
-			rwc = t.TpmDevice
-			k = t.Key
-		}
-
-		pub, _, _, err := tpm2.ReadPublic(rwc, k.Handle())
-		if err != nil {
-			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-			return nil
-		}
-		pubKey, err := pub.Key()
-		if err != nil {
-			fmt.Printf("google: Unable to Read Public data from TPM: %v", err)
-			return nil
-		}
-		t.publicKey = pubKey
-	}
 	return t.publicKey
 }
 
@@ -196,27 +188,23 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	}
 }
 
-func (t TPM) TLSCertificate() tls.Certificate {
+func (t TPM) TLSCertificate() (tls.Certificate, error) {
 
 	if t.PublicCertFile == "" {
-		fmt.Printf("Public X509 certificate not specified")
-		return tls.Certificate{}
+		return tls.Certificate{}, fmt.Errorf("Public X509 certificate not specified")
 	}
 
 	pubPEM, err := os.ReadFile(t.PublicCertFile)
 	if err != nil {
-		fmt.Printf("Unable to read keys %v", err)
-		return tls.Certificate{}
+		return tls.Certificate{}, fmt.Errorf("Unable to read public certificate file %v", err)
 	}
 	block, _ := pem.Decode([]byte(pubPEM))
 	if block == nil {
-		fmt.Printf("failed to parse PEM block containing the public key")
-		return tls.Certificate{}
+		return tls.Certificate{}, fmt.Errorf("failed to parse PEM block containing the public key")
 	}
 	pub, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		fmt.Printf("failed to parse public key: " + err.Error())
-		return tls.Certificate{}
+		return tls.Certificate{}, fmt.Errorf("Unable to read public certificate file %v", err)
 	}
 
 	t.x509Certificate = *pub
@@ -225,5 +213,5 @@ func (t TPM) TLSCertificate() tls.Certificate {
 		PrivateKey:  privKey,
 		Leaf:        &t.x509Certificate,
 		Certificate: [][]byte{t.x509Certificate.Raw},
-	}
+	}, nil
 }
