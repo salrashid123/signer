@@ -28,6 +28,43 @@ example usage generates a new TPM unrestricted RSA key and sign,verify some data
 
 You can create the persistent handles using go-tpm or using  `tpm2_tools` and make it persistent, 
 
+First install latest `tpm2_tools`
+
+```bash
+## install latest tpm2-tools:
+####  https://github.com/salrashid123/tpm2/tree/master?tab=readme-ov-file#installing-tpm2_tools-golang
+#### https://tpm2-tools.readthedocs.io/en/latest/INSTALL/
+
+apt-get update
+
+apt -y install   autoconf-archive   libcmocka0   libcmocka-dev   procps  \
+   iproute2   build-essential   git   pkg-config   gcc   libtool   automake \
+     libssl-dev   uthash-dev   autoconf   doxygen  libcurl4-openssl-dev dbus-x11 libglib2.0-dev libjson-c-dev acl
+
+cd
+git clone https://github.com/tpm2-software/tpm2-tss.git
+  cd tpm2-tss
+  ./bootstrap
+  ./configure --with-udevrulesdir=/etc/udev/rules.d
+  make -j$(nproc)
+  make install
+  udevadm control --reload-rules && sudo udevadm trigger
+  ldconfig
+
+cd
+git clone https://github.com/tpm2-software/tpm2-tools.git
+  cd tpm2-tools
+  ./bootstrap
+  ./configure
+  make check
+  make install
+
+## install golang  
+wget https://go.dev/dl/go1.22.3.linux-amd64.tar.gz
+rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.3.linux-amd64.tar.gz
+export PATH=$PATH:/usr/local/go/bin
+```
+
 ```bash
 cd example/
 
