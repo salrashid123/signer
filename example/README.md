@@ -118,10 +118,13 @@ export TPM2TOOLS_TCTI="swtpm:port=2321"
 
 ## ===== 
 
-cd example
+cd example/
 
-## RSA-SSA
- go run sign_verify_tpm/rsassa/main.go --handle=0x81008001
+## RSA-SSA managed externally
+go run sign_verify_tpm/rsassa/main.go --handle=0x81008001
+
+## RSA-SSA managed by library
+go run sign_verify_tpm/rsassa_managed/main.go --handle=0x81008001
 
 ## RSA-PSS
 go run sign_verify_tpm/rsapss/main.go --handle=0x81008004
@@ -131,7 +134,6 @@ go run sign_verify_tpm/ecc/main.go --handle=0x81008005
 
 ## RSA with policy
 go run sign_verify_tpm/policy/main.go --handle=0x81008006
-
 ```
 
 

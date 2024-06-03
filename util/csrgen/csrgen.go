@@ -81,18 +81,20 @@ func main() {
 	}()
 
 	rwr := transport.FromReadWriter(rwc)
+
 	pub, err := tpm2.ReadPublic{
 		ObjectHandle: tpm2.TPMHandle(*persistentHandle),
 	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("error executing tpm2.ReadPublic %v", err)
 	}
+
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
 		AuthHandle: &tpm2.AuthHandle{
 			Handle: tpm2.TPMHandle(*persistentHandle),
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
+			Auth:   tpm2.PasswordAuth([]byte("")),
 		},
 		ECCRawOutput: *useECCRawFormat,
 	})
@@ -127,8 +129,8 @@ func createCSR(t crypto.Signer) error {
 			Country:            []string{"US"},
 			CommonName:         *cn,
 		},
-		DNSNames: []string{*sni},
-		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
+		DNSNames:           []string{*sni},
+		SignatureAlgorithm: x509.SHA256WithRSAPSS,
 	}
 
 	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrtemplate, t)

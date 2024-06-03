@@ -19,28 +19,24 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"os"
+	"slices"
 	"sync"
 
+	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
+	"github.com/google/go-tpm/tpmutil"
 )
 
 const ()
-
-var ()
 
 // Configures and manages Singer configuration
 //
 
 type TPM struct {
 	crypto.Signer
-
-	AuthHandle *tpm2.AuthHandle   // load a key from handle
-	TpmDevice  io.ReadWriteCloser // TPM read closer
-
-	EncryptionHandle tpm2.TPMHandle   // (optional) handle to use for transit encryption
-	EncryptionPub    *tpm2.TPMTPublic // (optional) public key to use for transit encryption
 
 	ECCRawOutput   bool // for ECC keys, output raw signatures. If false, signature is ans1 formatted
 	refreshMutex   sync.Mutex
@@ -49,20 +45,128 @@ type TPM struct {
 	x509Certificate *x509.Certificate
 	publicKey       crypto.PublicKey
 	tpmPublic       tpm2.TPMTPublic
+
+	// for externally managed device
+	AuthHandle       *tpm2.AuthHandle   // load a key from handle
+	TpmDevice        io.ReadWriteCloser // TPM read closer
+	EncryptionHandle tpm2.TPMHandle     // (optional) handle to use for transit encryption
+	EncryptionPub    *tpm2.TPMTPublic   // (optional) public key to use for transit encryption
+
+	// for library  managed device
+	TpmPath      string // string path to the tpm ("eg: /dev/tpm0")
+	KeyHandle    uint32 // uint value for the persistent handle
+	PCRs         []uint // pcrs to bind to
+	AuthPassword []byte // auth password
+}
+
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
+
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
 }
 
 // Configure a new TPM crypto.Signer
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
 
-	if conf.AuthHandle == nil || conf.TpmDevice == nil {
-		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: AuthHandle and TpmDevice must be specified")
+	if conf.TpmDevice == nil && conf.TpmPath == "" {
+		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: TpmDevice or TpmPath must be specified")
 	}
 
-	rwr := transport.FromReadWriter(conf.TpmDevice)
+	if conf.TpmDevice != nil && conf.TpmPath != "" {
+		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: only one of TpmDevice or TpmPath must be specified")
+	}
+
+	var rwr transport.TPM
+	var ah *tpm2.AuthHandle
+
+	// if an actual device is specified, its externally managed
+	// so the auth handle shoud've been initialzied before this
+	if conf.TpmDevice != nil {
+		if conf.AuthHandle == nil || conf.TpmDevice == nil {
+			return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: AuthHandle and TpmDevice must be specified")
+		}
+		rwr = transport.FromReadWriter(conf.TpmDevice)
+		ah = conf.AuthHandle
+	} else {
+		// otherwise, its a library managed call
+		// here we'll open up the tpm and read in the
+		// persistent handle
+		//  after enabling for if any password or pcr policies
+		// wer'e going to close the tpm after this function call
+		rwc, err := OpenTPM(conf.TpmPath)
+		if err != nil {
+			return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: TpmDevice or TpmPath must be specified")
+		}
+		defer rwc.Close()
+
+		if len(conf.AuthPassword) > 0 && len(conf.PCRs) > 0 {
+			return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: only auth or pcr policy is supported...")
+		}
+
+		rwr = transport.FromReadWriter(rwc)
+
+		h := tpm2.TPMHandle(conf.KeyHandle)
+		defer func() {
+			flushContextCmd := tpm2.FlushContext{
+				FlushHandle: h,
+			}
+			_, _ = flushContextCmd.Execute(rwr)
+		}()
+
+		pub, err := tpm2.ReadPublic{
+			ObjectHandle: tpm2.TPMHandle(conf.KeyHandle),
+		}.Execute(rwr)
+		if err != nil {
+			return TPM{}, fmt.Errorf("error reading public %v", err)
+		}
+
+		if len(conf.PCRs) > 0 {
+			sess, cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
+			if err != nil {
+				return TPM{}, fmt.Errorf("error creating policy session %v", err)
+			}
+			defer cleanup()
+
+			_, err = tpm2.PolicyPCR{
+				PolicySession: sess.Handle(),
+				Pcrs: tpm2.TPMLPCRSelection{
+					PCRSelections: []tpm2.TPMSPCRSelection{
+						{
+							Hash:      tpm2.TPMAlgSHA256,
+							PCRSelect: tpm2.PCClientCompatible.PCRs(conf.PCRs...),
+						},
+					},
+				},
+			}.Execute(rwr)
+			if err != nil {
+				return TPM{}, fmt.Errorf("error creating policy pcr %v", err)
+			}
+
+			ah = &tpm2.AuthHandle{
+				Handle: h,
+				Name:   pub.Name,
+				Auth:   sess,
+			}
+
+		} else {
+			ah = &tpm2.AuthHandle{
+				Handle: h,
+				Name:   pub.Name,
+				Auth:   tpm2.PasswordAuth(conf.AuthPassword),
+			}
+		}
+
+	}
 
 	pub, err := tpm2.ReadPublic{
-		ObjectHandle: conf.AuthHandle.Handle,
+		ObjectHandle: ah.Handle,
 	}.Execute(rwr)
 	if err != nil {
 		return TPM{}, fmt.Errorf("google: Unable to Read Public data from TPM: %v", err)
@@ -122,7 +226,65 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
-	rwr := transport.FromReadWriter(t.TpmDevice)
+	var rwr transport.TPM
+	var ah *tpm2.AuthHandle
+
+	// for each signature, check if the device is externally
+	// managed or not
+	if t.TpmDevice != nil {
+		rwr = transport.FromReadWriter(t.TpmDevice)
+		ah = t.AuthHandle
+	} else {
+		// since its internally managed, open, sign and then close
+		// the device
+		// we need to reload the key from the handle and apply
+		// any password or pcr policies before the signature
+		rwc, err := OpenTPM(t.TpmPath)
+		if err != nil {
+			return nil, fmt.Errorf("salrashid123/x/oauth2/google: error opening tpm %v", err)
+		}
+		defer rwc.Close()
+
+		rwr = transport.FromReadWriter(rwc)
+
+		pub, err := tpm2.ReadPublic{
+			ObjectHandle: tpm2.TPMHandle(t.KeyHandle),
+		}.Execute(rwr)
+		if err != nil {
+			return nil, fmt.Errorf("salrashid123/x/oauth2/google: error executing tpm2.ReadPublic %v", err)
+		}
+
+		if len(t.PCRs) > 0 {
+			sess, cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
+			if err != nil {
+				return nil, fmt.Errorf("error creating policy session %v", err)
+			}
+			defer cleanup()
+
+			_, err = tpm2.PolicyPCR{
+				PolicySession: sess.Handle(),
+				Pcrs: tpm2.TPMLPCRSelection{
+					PCRSelections: []tpm2.TPMSPCRSelection{
+						{
+							Hash:      tpm2.TPMAlgSHA256,
+							PCRSelect: tpm2.PCClientCompatible.PCRs(t.PCRs...),
+						},
+					},
+				},
+			}.Execute(rwr)
+			if err != nil {
+				return nil, fmt.Errorf("error creating policy pcr %v", err)
+			}
+		} else {
+
+			ah = &tpm2.AuthHandle{
+				Handle: tpm2.TPMHandle(t.KeyHandle),
+				Name:   pub.Name,
+				Auth:   tpm2.PasswordAuth(t.AuthPassword),
+			}
+		}
+
+	}
 
 	var sess tpm2.Session
 
@@ -156,7 +318,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			return nil, fmt.Errorf("tpmjwt: can't error getting rsa details %v", err)
 		}
 		rspSign, err := tpm2.Sign{
-			KeyHandle: *t.AuthHandle,
+			KeyHandle: *ah,
 			Digest: tpm2.TPM2BDigest{
 				Buffer: digest[:],
 			},
@@ -196,7 +358,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			return nil, fmt.Errorf("tpmjwt: can't error getting rsa details %v", err)
 		}
 		rspSign, err := tpm2.Sign{
-			KeyHandle: t.AuthHandle,
+			KeyHandle: *ah,
 			Digest: tpm2.TPM2BDigest{
 				Buffer: digest[:],
 			},
