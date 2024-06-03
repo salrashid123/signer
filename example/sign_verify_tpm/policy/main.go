@@ -50,7 +50,7 @@ go run sign_verify_tpm/policy/main.go --handle=0x81008006
 */
 
 var (
-	tpmPath = flag.String("tpm-path", "127.0.0.1:2321", "Path to the TPM device (character device or a Unix socket).")
+	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
 	handle  = flag.Uint("handle", 0x81008006, "rsa Handle value")
 	pcr     = flag.Int("pcr", 23, "PCR value")
 )

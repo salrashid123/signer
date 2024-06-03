@@ -68,9 +68,9 @@ export PATH=$PATH:/usr/local/go/bin
 ```bash
 cd example/
 
-rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
-sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
-export TPM2TOOLS_TCTI="swtpm:port=2321"
+# rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
+# sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+# export TPM2TOOLS_TCTI="swtpm:port=2321"
 
 
 ## RSA - no password

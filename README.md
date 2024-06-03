@@ -85,13 +85,9 @@ For TPM Signer, there are two modes of operation:
 
   The TPM device is managed externally outside of the signer.  You have to instantiate the TPM device ReadWriteCloser and client.Key outside of the library and pass that in.
 
-  The advantage of this is you control it opening and closing.  You must close the key and closer before calling another signing operation.  THis sounds ok but is problematic when dealing with long-running processes which may need to hang on to the tpm (for example you use the singer for an TLS server)
-
-  if you want to manage it externally, 
+  The advantage of this is you control it opening and closing.  You must close the key and closer before calling another signing operation.  
 
   ```golang
-    // this blocks access to the tpm by other processes
-    // until rwc.Close() is closed  
 	rwc, err := OpenTPM(*tpmPath)
 	rwr := transport.FromReadWriter(rwc)
 
@@ -116,7 +112,6 @@ For TPM Signer, there are two modes of operation:
   This is the preferred mode: you just pass the uint32 handle for the key and the path to the tpm device as string and the library opens/closes it as needed.
 
   If the device is busy or the TPM is in use during invocation, the operation will fail.
-
 
   ```golang
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{

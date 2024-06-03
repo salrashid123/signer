@@ -38,7 +38,7 @@ const ()
 */
 
 var (
-	tpmPath = flag.String("tpm-path", "127.0.0.1:2321", "Path to the TPM device (character device or a Unix socket).")
+	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
 	handle  = flag.Uint("handle", 0x81008001, "rsa Handle value")
 )
 
