@@ -1,9 +1,11 @@
 module github.com/salrashid123/signer/tpm
 
-go 1.20
+go 1.22
+
+toolchain go1.22.2
 
 require (
-	github.com/google/go-tpm v0.9.0
+	github.com/google/go-tpm v0.9.1-0.20240510201744-5c2f0887e003
 	github.com/google/go-tpm-tools v0.4.4
 	github.com/stretchr/testify v1.8.3
 )

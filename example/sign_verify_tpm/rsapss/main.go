@@ -2,15 +2,14 @@ package main
 
 import (
 	"crypto"
-	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
 	"log"
-	"math/big"
 	"net"
 	"os"
 	"slices"
@@ -27,14 +26,15 @@ const ()
 /*
 
 
-## ecc
+## rsa-pss
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx  --format=pem --output=ecc_public.pem
+	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx  --format=pem --output=rsapss_public.pem
 	tpm2_flushcontext  -t
 	tpm2_getcap  handles-transient
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-	tpm2_evictcontrol -C o -c key.ctx 0x81008005
+	tpm2_evictcontrol -C o -c key.ctx 0x81008004
 	tpm2_flushcontext  -t
+
 */
 
 var (
@@ -86,80 +86,43 @@ func main() {
 	h.Write(b)
 	digest := h.Sum(nil)
 
-	er, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
 		AuthHandle: &tpm2.AuthHandle{
 			Handle: tpm2.TPMHandle(*handle),
 			Name:   pub.Name,
 			Auth:   tpm2.PasswordAuth(nil),
 		},
-		ECCRawOutput: true, // use raw output; not asn1
 	})
+
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	es, err := er.Sign(rand.Reader, digest, crypto.SHA256)
+
+	s, err := r.Sign(rand.Reader, digest, crypto.SHA256)
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
 	}
-	fmt.Printf("ECC Signed String: %s\n", base64.StdEncoding.EncodeToString(es))
+	fmt.Printf("RSA Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
 
-	ecPubKey, ok := er.Public().(*ecdsa.PublicKey)
+	rsaPubKey, ok := r.Public().(*rsa.PublicKey)
 	if !ok {
-		log.Println("EKPublic key not found")
-		return
-	}
-
-	curveBits := ecPubKey.Curve.Params().BitSize
-	keyBytes := curveBits / 8
-	if curveBits%8 > 0 {
-		keyBytes += 1
-	}
-
-	x := big.NewInt(0).SetBytes(es[:keyBytes])
-	y := big.NewInt(0).SetBytes(es[keyBytes:])
-
-	ok = ecdsa.Verify(ecPubKey, digest[:], x, y)
-	if !ok {
-		fmt.Printf("ECDSA Signed String failed\n")
-		os.Exit(1)
-	}
-	fmt.Printf("ECDSA Signed String verified\n")
-
-	// now verify with ASN1 output format for ecc using library managed device
-	erasn, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-		TpmDevice: rwc,
-		AuthHandle: &tpm2.AuthHandle{
-			Handle: tpm2.TPMHandle(*handle),
-			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
-		},
-		//ECCRawOutput: false,
-	})
-	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	esasn, err := erasn.Sign(rand.Reader, digest, crypto.SHA256)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	fmt.Printf("ECC Signed String ASN1: %s\n", base64.StdEncoding.EncodeToString(esasn))
 
-	ecPubKeyASN, ok := erasn.Public().(*ecdsa.PublicKey)
-	if !ok {
-		log.Println("EKPublic key not found")
+	opts := &rsa.PSSOptions{
+		Hash:       crypto.SHA256,
+		SaltLength: rsa.PSSSaltLengthAuto,
+	}
+	err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest, s, opts)
+	if err != nil {
+		fmt.Println(err)
 		return
 	}
 
-	ok = ecdsa.VerifyASN1(ecPubKeyASN, digest[:], esasn)
-	if !ok {
-		fmt.Printf("ECDSA Signed String failed\n")
-		os.Exit(1)
-	}
-	fmt.Printf("ECDSA Signed String verified\n")
+	fmt.Printf("RSA Signed String verified\n")
 
 }

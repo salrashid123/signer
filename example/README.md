@@ -68,43 +68,69 @@ export PATH=$PATH:/usr/local/go/bin
 ```bash
 cd example/
 
-## for rsapersistentHandle
+rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
+sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+export TPM2TOOLS_TCTI="swtpm:port=2321"
 
- tpm2_createprimary -C e -c primary.ctx
- tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
- tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
- tpm2_evictcontrol -C o -c key.ctx 0x81008001
 
-## for eccpersistentHandle
+## RSA - no password
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008001
+	tpm2_flushcontext  -t
 
- tpm2_createprimary -C e -c primary.ctx
- tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx
- tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
- tpm2_evictcontrol -C o -c key.ctx 0x81008002
+## rsa-pss
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx  --format=pem --output=rsapss_public.pem
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient 
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008004
+	tpm2_flushcontext  -t
+
+## ecc
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx  --format=pem --output=ecc_public.pem
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient  
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008005    
+	tpm2_flushcontext  -t
 
 
 ## for policyRSApersistentHandle
 
- tpm2_startauthsession -S session.dat
- tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
- tpm2_flushcontext session.dat
- tpm2_createprimary -C o -c primary2.ctx
- tpm2_create -G rsa2048:rsassa:null -g sha256 -u rsa2.pub -r rsa2.priv -C primary2.ctx  -L policy.dat
- tpm2_load -C primary2.ctx -u rsa2.pub -r rsa2.priv -c rsa2.ctx
- tpm2_evictcontrol -C o -c rsa2.ctx 0x81008004
+	tpm2_pcrread sha256:23
+	tpm2_startauthsession -S session.dat
+	tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
+	tpm2_flushcontext session.dat
+	tpm2_flushcontext  -t
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx  -L policy.dat
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008006
+	tpm2_flushcontext  -t
 
 ## ===== 
 
 cd example
 
-## RSA
-go run sign_verify_tpm/rsa/main.go --handle=0x81008001
+## RSA-SSA
+ go run sign_verify_tpm/rsassa/main.go --handle=0x81008001
+
+## RSA-PSS
+go run sign_verify_tpm/rsapss/main.go --handle=0x81008004
 
 ## ECC
-go run sign_verify_tpm/ecc/main.go --handle=0x81008002 
+go run sign_verify_tpm/ecc/main.go --handle=0x81008005 
 
 ## RSA with policy
-go run sign_verify_tpm/policy/main.go --handle=0x81008004
+go run sign_verify_tpm/policy/main.go --handle=0x81008006
 
 ```
 

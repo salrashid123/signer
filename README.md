@@ -19,6 +19,15 @@ Some implementations:
 
 see the [example/](example/) folder for more information.
 
+---
+
+>> **NOTE** there will be a breaking change if you are using this library for TPM based signature after `v0.8.0`.  The new structure uses the [tpm-direct](https://github.com/google/go-tpm/releases/tag/v0.9.0) API.  If you would rather use the tpm2/legacy branch, please use the signer at [v0.7.2](https://github.com/salrashid123/signer/releases/tag/v0.7.2).  This change also *removes* the library managed device.  The caller must provide a pre-authorized key (there was no way the library could authorize the variety of auth sessions...it must be provided in)
+
+
+>> this library is not supported by google
+
+---
+
 ### Usage Signer
 
 Initialize a signer and directly use `.sign()` as shown in this sample for GCS SignedURL:
@@ -61,27 +70,6 @@ go run certgen/certgen.go -cn server.domain.com
 
 ---
 
-### TPM Signer Device management
-
-For TPM Signer, there are two modes of operation:
-
-* managed externally
-
-  The TPM device is managed externally outside of the signer.  You have to instantiate the TPM device ReadWriteCloser and client.Key outside of the library and pass that in.
-
-  The advantage of this is you control it opening and closing.  You must close the key and closer before calling another signing operation
-
-* managed by library
-
-  This is the preferred mode: you just pass the uint32 handle for the key and the path to the tpm device as string and the library opens/closes it as needed.
-
-  If the device is busy or the TPM is in use during invocation, the operation will fail.
-  
-TODO use a backoff retry similar to [tpmrand](https://github.com/salrashid123/tpmrand) to prevent contention.
-
-Please note that we are persisting the handle here for easy access.  The more formal way is to save the entire chain of keys (which is a TODO)
-
-A limitation of using persistent handles is that its limited on a TPM (typically 7 slots).  You have to evict (i.,e delete) one before loading a new one.
 
 If you just want to issue JWT's, see
 

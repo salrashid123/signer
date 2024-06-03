@@ -11,15 +11,20 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"flag"
+	"io"
 	"log"
 	"math/big"
+	"net"
 	"os"
+	"slices"
 	"time"
 
 	//salpem "github.com/salrashid123/signer/pem"
 	//salkms "github.com/salrashid123/signer/kms"
-	"github.com/google/go-tpm-tools/client"
-	"github.com/google/go-tpm/legacy/tpm2"
+
+	"github.com/google/go-tpm-tools/simulator"
+	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
 	saltpm "github.com/salrashid123/signer/tpm"
 	//salvault "github.com/salrashid123/signer/vault"
@@ -63,21 +68,46 @@ var (
 	tpmPath  = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
 )
 
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
+
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
+
 func main() {
+
 	flag.Parse()
-	rwc, err := tpm2.OpenTPM(*tpmPath)
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	k, err := client.LoadCachedKey(rwc, tpmutil.Handle(*persistentHandle), nil)
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
+	defer func() {
+		if err := rwc.Close(); err != nil {
+			log.Fatalf("can't close TPM %q: %v", *tpmPath, err)
+		}
+	}()
 
+	rwr := transport.FromReadWriter(rwc)
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: tpm2.TPMHandle(*persistentHandle),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("error executing tpm2.ReadPublic %v", err)
+	}
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-		TpmDevice:    rwc,
-		Key:          k,
+		TpmDevice: rwc,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: tpm2.TPMHandle(*persistentHandle),
+			Name:   pub.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
 		ECCRawOutput: *useECCRawFormat,
 	})
 
@@ -88,20 +118,6 @@ func main() {
 	// 	Key:                "s",
 	// 	KeyVersion:         "1",
 	// 	SignatureAlgorithm: x509.SHA256WithRSA,
-	// })
-
-	// r, err := salvault.NewVaultCrypto(&salvault.Vault{
-	// 	VaultToken:         "s.JWSYsGG4SsvsojZYyrRfKrUt",
-	// 	KeyPath:            "transit/keys/key1",
-	// 	SignPath:           "transit/sign/key1",
-	// 	KeyVersion:         1,
-	// 	VaultCAcert:        "../example/certs/tls-ca-chain.pem",
-	// 	VaultAddr:          "https://vault.domain.com:8200",
-	// 	SignatureAlgorithm: x509.SHA256WithRSA,
-	// })
-
-	// r, err := salpem.NewPEMCrypto(&salpem.PEM{
-	// 	PrivatePEMFile: "../example/certs/client_rsa.key",
 	// })
 
 	if err != nil {

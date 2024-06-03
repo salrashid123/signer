@@ -9,11 +9,119 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm-tools/simulator"
-	"github.com/google/go-tpm/legacy/tpm2"
-	"github.com/google/go-tpm/tpmutil"
+	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	rsaTemplate = tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgRSA,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			SignEncrypt:         true,
+			FixedTPM:            true,
+			FixedParent:         true,
+			SensitiveDataOrigin: true,
+			UserWithAuth:        true,
+		},
+		AuthPolicy: tpm2.TPM2BDigest{},
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPMSRSAParms{
+				Scheme: tpm2.TPMTRSAScheme{
+					Scheme: tpm2.TPMAlgRSASSA,
+					Details: tpm2.NewTPMUAsymScheme(
+						tpm2.TPMAlgRSASSA,
+						&tpm2.TPMSSigSchemeRSASSA{
+							HashAlg: tpm2.TPMAlgSHA256,
+						},
+					),
+				},
+				KeyBits: 2048,
+			},
+		),
+		Unique: tpm2.NewTPMUPublicID(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPM2BPublicKeyRSA{
+				Buffer: make([]byte, 256),
+			},
+		),
+	}
+
+	rsaPSSTemplate = tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgRSA,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			SignEncrypt:         true,
+			FixedTPM:            true,
+			FixedParent:         true,
+			SensitiveDataOrigin: true,
+			UserWithAuth:        true,
+		},
+		AuthPolicy: tpm2.TPM2BDigest{},
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPMSRSAParms{
+				Scheme: tpm2.TPMTRSAScheme{
+					Scheme: tpm2.TPMAlgRSAPSS,
+					Details: tpm2.NewTPMUAsymScheme(
+						tpm2.TPMAlgRSAPSS,
+						&tpm2.TPMSSigSchemeRSAPSS{
+							HashAlg: tpm2.TPMAlgSHA256,
+						},
+					),
+				},
+				KeyBits: 2048,
+			},
+		),
+		Unique: tpm2.NewTPMUPublicID(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPM2BPublicKeyRSA{
+				Buffer: make([]byte, 256),
+			},
+		),
+	}
+
+	eccTemplate = tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgECC,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			SignEncrypt:         true,
+			FixedTPM:            true,
+			FixedParent:         true,
+			SensitiveDataOrigin: true,
+			UserWithAuth:        true,
+		},
+		AuthPolicy: tpm2.TPM2BDigest{},
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgECC,
+			&tpm2.TPMSECCParms{
+				Scheme: tpm2.TPMTECCScheme{
+					Scheme: tpm2.TPMAlgECDSA,
+					Details: tpm2.NewTPMUAsymScheme(
+						tpm2.TPMAlgECDSA,
+						&tpm2.TPMSSigSchemeECDSA{
+							HashAlg: tpm2.TPMAlgSHA256,
+						},
+					),
+				},
+				CurveID: tpm2.TPMECCNistP256,
+			},
+		),
+		Unique: tpm2.NewTPMUPublicID(
+			tpm2.TPMAlgECC,
+			&tpm2.TPMSECCPoint{
+				X: tpm2.TPM2BECCParameter{
+					Buffer: make([]byte, 32),
+				},
+				Y: tpm2.TPM2BECCParameter{
+					Buffer: make([]byte, 32),
+				},
+			},
+		),
+	}
 )
 
 func TestTPMPublic(t *testing.T) {
@@ -21,13 +129,48 @@ func TestTPMPublic(t *testing.T) {
 	require.NoError(t, err)
 	defer tpmDevice.Close()
 
-	createdKey, err := client.NewKey(tpmDevice, tpm2.HandleOwner, client.SRKTemplateRSA())
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
 	require.NoError(t, err)
-	defer createdKey.Close()
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: rsaKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		Key:       createdKey,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -40,44 +183,65 @@ func TestTPMPublic(t *testing.T) {
 	require.Equal(t, 2048, rsaPubKey.Size()*8)
 }
 
-// copied from https://github.com/google/go-tpm-tools/blob/v0.4.0/client/signer_test.go#L18-L24
-func templateRSASSA(hash tpm2.Algorithm) tpm2.Public {
-	template := client.AKTemplateRSA()
-	// Can't sign arbitrary data if restricted.
-	template.Attributes &= ^tpm2.FlagRestricted
-	template.RSAParameters.Sign.Hash = hash
-	return template
-}
-
-func templateRSAPSS(hash tpm2.Algorithm) tpm2.Public {
-	template := client.AKTemplateRSA()
-	// Can't sign arbitrary data if restricted.
-	template.Attributes &= ^tpm2.FlagRestricted
-	template.RSAParameters.Sign.Hash = hash
-	template.RSAParameters.Sign.Alg = tpm2.AlgRSAPSS
-	return template
-}
-
-func templateECC(hash tpm2.Algorithm) tpm2.Public {
-	template := client.AKTemplateECC()
-	// Can't sign arbitrary data if restricted.
-	template.Attributes &= ^tpm2.FlagRestricted
-	template.ECCParameters.Sign.Hash = hash
-	return template
-}
-
 func TestTPMSignRSA(t *testing.T) {
 	tpmDevice, err := simulator.Get()
 	require.NoError(t, err)
 	defer tpmDevice.Close()
 
-	createdKey, err := client.NewKey(tpmDevice, tpm2.HandleOwner, templateRSASSA(tpm2.AlgSHA256))
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
 	require.NoError(t, err)
-	defer createdKey.Close()
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: rsaKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	outPub, err := pub.OutPublic.Contents()
+	require.NoError(t, err)
+
+	rsaDetail, err := outPub.Parameters.RSADetail()
+	require.NoError(t, err)
+
+	rsaUnique, err := outPub.Unique.RSA()
+	require.NoError(t, err)
+
+	pubKey, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	require.NoError(t, err)
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		Key:       createdKey,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -89,9 +253,6 @@ func TestTPMSignRSA(t *testing.T) {
 
 	signature, err := tpm.Sign(tpmDevice, digest, nil)
 	require.NoError(t, err)
-
-	pubKey, ok := createdKey.PublicKey().(*rsa.PublicKey)
-	require.True(t, ok)
 
 	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, digest, signature)
 	require.NoError(t, err)
@@ -102,13 +263,60 @@ func TestTPMSignRSAFail(t *testing.T) {
 	require.NoError(t, err)
 	defer tpmDevice.Close()
 
-	createdKey, err := client.NewKey(tpmDevice, tpm2.HandleOwner, templateRSASSA(tpm2.AlgSHA256))
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
 	require.NoError(t, err)
-	defer createdKey.Close()
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: rsaKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	outPub, err := pub.OutPublic.Contents()
+	require.NoError(t, err)
+
+	rsaDetail, err := outPub.Parameters.RSADetail()
+	require.NoError(t, err)
+
+	rsaUnique, err := outPub.Unique.RSA()
+	require.NoError(t, err)
+
+	pubKey, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	require.NoError(t, err)
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		Key:       createdKey,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -120,9 +328,6 @@ func TestTPMSignRSAFail(t *testing.T) {
 
 	signature, err := tpm.Sign(tpmDevice, digest, nil)
 	require.NoError(t, err)
-
-	pubKey, ok := createdKey.PublicKey().(*rsa.PublicKey)
-	require.True(t, ok)
 
 	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, []byte("another test digest"), signature)
 	require.Error(t, err)
@@ -133,13 +338,60 @@ func TestTPMSignRSAPSS(t *testing.T) {
 	require.NoError(t, err)
 	defer tpmDevice.Close()
 
-	createdKey, err := client.NewKey(tpmDevice, tpm2.HandleOwner, templateRSAPSS(tpm2.AlgSHA256))
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
 	require.NoError(t, err)
-	defer createdKey.Close()
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaPSSTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: rsaKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	outPub, err := pub.OutPublic.Contents()
+	require.NoError(t, err)
+
+	rsaDetail, err := outPub.Parameters.RSADetail()
+	require.NoError(t, err)
+
+	rsaUnique, err := outPub.Unique.RSA()
+	require.NoError(t, err)
+
+	pubKey, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	require.NoError(t, err)
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		Key:       createdKey,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -151,9 +403,6 @@ func TestTPMSignRSAPSS(t *testing.T) {
 
 	signature, err := tpm.Sign(tpmDevice, digest, nil)
 	require.NoError(t, err)
-
-	pubKey, ok := createdKey.PublicKey().(*rsa.PublicKey)
-	require.True(t, ok)
 
 	opts := &rsa.PSSOptions{
 		Hash:       crypto.SHA256,
@@ -168,13 +417,66 @@ func TestTPMSignECC(t *testing.T) {
 	require.NoError(t, err)
 	defer tpmDevice.Close()
 
-	createdKey, err := client.NewKey(tpmDevice, tpm2.HandleOwner, templateECC(tpm2.AlgSHA256))
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
 	require.NoError(t, err)
-	defer createdKey.Close()
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	eccKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&eccTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: eccKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: eccKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	outPub, err := pub.OutPublic.Contents()
+	require.NoError(t, err)
+
+	eccDetail, err := outPub.Parameters.ECCDetail()
+	require.NoError(t, err)
+
+	ecUnique, err := outPub.Unique.ECC()
+	require.NoError(t, err)
+
+	crv, err := eccDetail.CurveID.Curve()
+	require.NoError(t, err)
+
+	pubKey := &ecdsa.PublicKey{
+		Curve: crv,
+		X:     big.NewInt(0).SetBytes(ecUnique.X.Buffer),
+		Y:     big.NewInt(0).SetBytes(ecUnique.Y.Buffer),
+	}
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		Key:       createdKey,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: eccKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -187,10 +489,7 @@ func TestTPMSignECC(t *testing.T) {
 	signature, err := tpm.Sign(tpmDevice, digest, nil)
 	require.NoError(t, err)
 
-	pubKey, ok := createdKey.PublicKey().(*ecdsa.PublicKey)
-	require.True(t, ok)
-
-	ok = ecdsa.VerifyASN1(pubKey, digest[:], signature)
+	ok := ecdsa.VerifyASN1(pubKey, digest[:], signature)
 	require.True(t, ok)
 }
 
@@ -199,13 +498,66 @@ func TestTPMSignECCRAW(t *testing.T) {
 	require.NoError(t, err)
 	defer tpmDevice.Close()
 
-	createdKey, err := client.NewKey(tpmDevice, tpm2.HandleOwner, templateECC(tpm2.AlgSHA256))
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
 	require.NoError(t, err)
-	defer createdKey.Close()
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	eccKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&eccTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: eccKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: eccKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	outPub, err := pub.OutPublic.Contents()
+	require.NoError(t, err)
+
+	eccDetail, err := outPub.Parameters.ECCDetail()
+	require.NoError(t, err)
+
+	ecUnique, err := outPub.Unique.ECC()
+	require.NoError(t, err)
+
+	crv, err := eccDetail.CurveID.Curve()
+	require.NoError(t, err)
+
+	pubKey := &ecdsa.PublicKey{
+		Curve: crv,
+		X:     big.NewInt(0).SetBytes(ecUnique.X.Buffer),
+		Y:     big.NewInt(0).SetBytes(ecUnique.Y.Buffer),
+	}
 
 	conf := TPM{
-		TpmDevice:    tpmDevice,
-		Key:          createdKey,
+		TpmDevice: tpmDevice,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: eccKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
 		ECCRawOutput: true,
 	}
 
@@ -219,9 +571,6 @@ func TestTPMSignECCRAW(t *testing.T) {
 	signature, err := tpm.Sign(tpmDevice, digest, nil)
 	require.NoError(t, err)
 
-	pubKey, ok := createdKey.PublicKey().(*ecdsa.PublicKey)
-	require.True(t, ok)
-
 	curveBits := pubKey.Curve.Params().BitSize
 	keyBytes := curveBits / 8
 	if curveBits%8 > 0 {
@@ -231,7 +580,7 @@ func TestTPMSignECCRAW(t *testing.T) {
 	x := big.NewInt(0).SetBytes(signature[:keyBytes])
 	y := big.NewInt(0).SetBytes(signature[keyBytes:])
 
-	ok = ecdsa.Verify(pubKey, digest[:], x, y)
+	ok := ecdsa.Verify(pubKey, digest[:], x, y)
 	require.True(t, ok)
 }
 
@@ -240,21 +589,108 @@ func TestTPMSignPolicy(t *testing.T) {
 	require.NoError(t, err)
 	defer tpmDevice.Close()
 
-	s, err := client.NewPCRSession(tpmDevice, tpm2.PCRSelection{tpm2.AlgSHA256, []int{0}})
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
 	require.NoError(t, err)
-	ac, err := s.Auth()
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pcr := 23
+
+	sess, cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Trial())
+	require.NoError(t, err)
+	defer cleanup()
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
+				},
+			},
+		},
+	}.Execute(rwr)
 	require.NoError(t, err)
 
-	sessionTemplate := templateRSASSA(tpm2.AlgSHA256)
-	sessionTemplate.AuthPolicy = ac.Auth
-
-	createdKey, err := client.NewKey(tpmDevice, tpm2.HandleOwner, sessionTemplate)
+	pgd, err := tpm2.PolicyGetDigest{
+		PolicySession: sess.Handle(),
+	}.Execute(rwr)
 	require.NoError(t, err)
-	defer createdKey.Close()
+
+	_, err = tpm2.FlushContext{FlushHandle: sess.Handle()}.Execute(rwr)
+	require.NoError(t, err)
+
+	pcrPolicyDigest := pgd.PolicyDigest.Buffer
+
+	rsaTemplate.AuthPolicy.Buffer = pcrPolicyDigest
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: rsaKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	outPub, err := pub.OutPublic.Contents()
+	require.NoError(t, err)
+
+	rsaDetail, err := outPub.Parameters.RSADetail()
+	require.NoError(t, err)
+
+	rsaUnique, err := outPub.Unique.RSA()
+	require.NoError(t, err)
+
+	pubKey, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	require.NoError(t, err)
+
+	sess2, cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
+	require.NoError(t, err)
+	defer cleanup()
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess2.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
+				},
+			},
+		},
+	}.Execute(rwr)
+	require.NoError(t, err)
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		Key:       createdKey,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   sess2,
+		},
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -267,9 +703,6 @@ func TestTPMSignPolicy(t *testing.T) {
 	signature, err := tpm.Sign(tpmDevice, digest, nil)
 	require.NoError(t, err)
 
-	pubKey, ok := createdKey.PublicKey().(*rsa.PublicKey)
-	require.True(t, ok)
-
 	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, digest, signature)
 	require.NoError(t, err)
 }
@@ -279,38 +712,126 @@ func TestTPMSignPolicyFail(t *testing.T) {
 	require.NoError(t, err)
 	defer tpmDevice.Close()
 
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
 	pcr := 23
 
-	s, err := client.NewPCRSession(tpmDevice, tpm2.PCRSelection{tpm2.AlgSHA256, []int{pcr}})
+	sess, cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Trial())
 	require.NoError(t, err)
-	ac, err := s.Auth()
-	require.NoError(t, err)
+	defer cleanup()
 
-	sessionTemplate := templateRSASSA(tpm2.AlgSHA256)
-	sessionTemplate.AuthPolicy = ac.Auth
-
-	createdKey, err := client.NewKey(tpmDevice, tpm2.HandleOwner, sessionTemplate)
-	require.NoError(t, err)
-	defer createdKey.Close()
-
-	pcrval, err := tpm2.ReadPCR(tpmDevice, pcr, tpm2.AlgSHA256)
-	require.NoError(t, err)
-
-	pcrToExtend := tpmutil.Handle(pcr)
-
-	err = tpm2.PCRExtend(tpmDevice, pcrToExtend, tpm2.AlgSHA256, pcrval, "")
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
+				},
+			},
+		},
+	}.Execute(rwr)
 	require.NoError(t, err)
 
-	ps, err := client.NewPCRSession(tpmDevice, tpm2.PCRSelection{tpm2.AlgSHA256, []int{pcr}})
+	pgd, err := tpm2.PolicyGetDigest{
+		PolicySession: sess.Handle(),
+	}.Execute(rwr)
 	require.NoError(t, err)
 
-	loadedKey, err := client.LoadCachedKey(tpmDevice, createdKey.Handle(), ps)
+	_, err = tpm2.FlushContext{FlushHandle: sess.Handle()}.Execute(rwr)
 	require.NoError(t, err)
-	defer loadedKey.Close()
+
+	pcrPolicyDigest := pgd.PolicyDigest.Buffer
+
+	rsaTemplate.AuthPolicy.Buffer = pcrPolicyDigest
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: rsaKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	/// extend pcr value
+
+	pcrReadRsp, err := tpm2.PCRRead{
+		PCRSelectionIn: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
+				},
+			},
+		},
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	_, err = tpm2.PCRExtend{
+		PCRHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMHandle(uint(pcr)),
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		Digests: tpm2.TPMLDigestValues{
+			Digests: []tpm2.TPMTHA{
+				{
+					HashAlg: tpm2.TPMAlgSHA256,
+					Digest:  pcrReadRsp.PCRValues.Digests[0].Buffer,
+				},
+			},
+		},
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	sess2, cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
+	require.NoError(t, err)
+	defer cleanup()
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess2.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
+				},
+			},
+		},
+	}.Execute(rwr)
+	require.NoError(t, err)
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		Key:       loadedKey,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   sess2,
+		},
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -323,4 +844,97 @@ func TestTPMSignPolicyFail(t *testing.T) {
 	_, err = tpm.Sign(tpmDevice, digest, nil)
 	require.Error(t, err)
 
+}
+
+func TestTPMEncryption(t *testing.T) {
+	tpmDevice, err := simulator.Get()
+	require.NoError(t, err)
+	defer tpmDevice.Close()
+
+	rwr := transport.FromReadWriter(tpmDevice)
+
+	createEKCmd := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
+	}
+	createEKRsp, err := createEKCmd.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: createEKRsp.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+	encryptionPub, err := createEKRsp.OutPublic.Contents()
+	require.NoError(t, err)
+
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: rsaKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	outPub, err := pub.OutPublic.Contents()
+	require.NoError(t, err)
+
+	rsaDetail, err := outPub.Parameters.RSADetail()
+	require.NoError(t, err)
+
+	rsaUnique, err := outPub.Unique.RSA()
+	require.NoError(t, err)
+
+	pubKey, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	require.NoError(t, err)
+
+	conf := TPM{
+		TpmDevice: tpmDevice,
+		AuthHandle: &tpm2.AuthHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   pub.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		EncryptionHandle: createEKRsp.ObjectHandle,
+		EncryptionPub:    encryptionPub,
+	}
+
+	tpm, err := NewTPMCrypto(&conf)
+	require.NoError(t, err)
+
+	hash := crypto.SHA256.New()
+	hash.Write([]byte("test digest"))
+	digest := hash.Sum(nil)
+
+	signature, err := tpm.Sign(tpmDevice, digest, nil)
+	require.NoError(t, err)
+
+	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, digest, signature)
+	require.NoError(t, err)
 }
