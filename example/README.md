@@ -39,9 +39,18 @@ First install latest `tpm2_tools`
 ```bash
 cd example/
 
+## if you want to use a software TPM, 
 # rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
 # sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+
+## then specify "127.0.0.1:2321"  as the TPM device path in the examples
+## then for tpm2_tools, export the following var
 # export TPM2TOOLS_TCTI="swtpm:port=2321"
+
+## note if you want, the primary can be the "H2" profile from https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html#name-parent
+## see https://gist.github.com/salrashid123/9822b151ebb66f4083c5f71fd4cdbe40
+# printf '\x00\x00' > unique.dat
+# tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
 
 
 ## RSA - no password
@@ -92,19 +101,17 @@ cd example/
 cd example/
 
 ## RSA-SSA managed externally
-go run sign_verify_tpm/rsassa/main.go --handle=0x81008001
-
-## RSA-SSA managed by library
-go run sign_verify_tpm/rsassa_managed/main.go --handle=0x81008001
+go run sign_verify_tpm/rsassa/main.go --handle=0x81008001 --tpm-path="127.0.0.1:2321"
 
 ## RSA-PSS
-go run sign_verify_tpm/rsapss/main.go --handle=0x81008004
+go run sign_verify_tpm/rsapss/main.go --handle=0x81008004 --tpm-path="127.0.0.1:2321"
 
 ## ECC
-go run sign_verify_tpm/ecc/main.go --handle=0x81008005 
+go run sign_verify_tpm/ecc/main.go --handle=0x81008005 --tpm-path="127.0.0.1:2321"
 
 ## RSA with policy
-go run sign_verify_tpm/policy/main.go --handle=0x81008006
+go run sign_verify_tpm/policy/main.go --handle=0x81008006 --tpm-path="127.0.0.1:2321"
 ```
 
+---
 
