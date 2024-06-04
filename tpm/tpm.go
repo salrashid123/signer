@@ -89,7 +89,7 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 	// if an actual device is specified, its externally managed
 	// so the auth handle shoud've been initialzied before this
 	if conf.TpmDevice != nil {
-		if conf.AuthHandle == nil || conf.TpmDevice == nil {
+		if conf.AuthHandle == nil {
 			return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: AuthHandle and TpmDevice must be specified")
 		}
 		rwr = transport.FromReadWriter(conf.TpmDevice)
@@ -98,7 +98,7 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 		// otherwise, its a library managed call
 		// here we'll open up the tpm and read in the
 		// persistent handle
-		//  after enabling for if any password or pcr policies
+		//  after enabling for if any password or pcr policies, we'll read the public key..then
 		// wer'e going to close the tpm after this function call
 		rwc, err := OpenTPM(conf.TpmPath)
 		if err != nil {
@@ -165,6 +165,7 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 
 	}
 
+	// todo: we should supply the encrypted session here, if set
 	pub, err := tpm2.ReadPublic{
 		ObjectHandle: ah.Handle,
 	}.Execute(rwr)
