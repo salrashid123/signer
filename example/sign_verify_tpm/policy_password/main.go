@@ -29,30 +29,22 @@ const (
 
 /*
 
-## RSA - pcr
-
-	tpm2_pcrread sha256:23
-	tpm2_startauthsession -S session.dat
-	tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
-	tpm2_flushcontext session.dat
-	tpm2_flushcontext  -t
+## RSA - password
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx  -L policy.dat
+	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx
 	tpm2_flushcontext  -t
 	tpm2_getcap  handles-transient
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008006
 	tpm2_flushcontext  -t
 
-
-
-go run sign_verify_tpm/policy/main.go --handle=0x81008006
+go run sign_verify_tpm/policy_password/main.go --handle=0x81008006
 */
 
 var (
 	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
 	handle  = flag.Uint("handle", 0x81008006, "rsa Handle value")
-	pcr     = flag.Int("pcr", 23, "PCR value")
+	keyPass = flag.String("keyPass", "testpwd", "KeyPassword")
 )
 
 var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
@@ -99,37 +91,19 @@ func main() {
 	h.Write(b)
 	digest := h.Sum(nil)
 
-	sess, cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
+	se, err := saltpm.NewPasswordSession(rwr, []byte(*keyPass))
 	if err != nil {
-		log.Fatalf("error executing tpm2.ReadPublic %v", err)
-	}
-	defer cleanup()
-
-	_, err = tpm2.PolicyPCR{
-		PolicySession: sess.Handle(),
-		Pcrs: tpm2.TPMLPCRSelection{
-			PCRSelections: []tpm2.TPMSPCRSelection{
-				{
-					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(*pcr)),
-				},
-			},
-		},
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing tpm2.ReadPublic %v", err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
-	defer func() {
-		_, err = tpm2.FlushContext{FlushHandle: sess.Handle()}.Execute(rwr)
-	}()
 	rr, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: tpm2.TPMHandle(*handle),
 			Name:   pub.Name,
-			Auth:   sess,
 		},
+		AuthSession: se,
 	})
 
 	if err != nil {

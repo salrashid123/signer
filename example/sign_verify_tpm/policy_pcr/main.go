@@ -18,28 +18,41 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
+
 	saltpm "github.com/salrashid123/signer/tpm"
 )
 
-const ()
+const (
+	emptyPassword   = ""
+	defaultPassword = ""
+)
 
 /*
 
+## RSA - pcr
 
-## rsa-pss
-	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx  --format=pem --output=rsapss_public.pem
+	tpm2_pcrread sha256:23
+	tpm2_startauthsession -S session.dat
+	tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
+	tpm2_flushcontext session.dat
+	tpm2_flushcontext  -t
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx  -L policy.dat
 	tpm2_flushcontext  -t
 	tpm2_getcap  handles-transient
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-	tpm2_evictcontrol -C o -c key.ctx 0x81008004
+	tpm2_evictcontrol -C o -c key.ctx 0x81008006
 	tpm2_flushcontext  -t
 
+
+
+go run sign_verify_tpm/policy/main.go --handle=0x81008006
 */
 
 var (
 	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
-	handle  = flag.Uint("handle", 0x81008001, "rsa Handle value")
+	handle  = flag.Uint("handle", 0x81008006, "rsa Handle value")
+	pcr     = flag.Int("pcr", 23, "PCR value")
 )
 
 var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
@@ -86,12 +99,24 @@ func main() {
 	h.Write(b)
 	digest := h.Sum(nil)
 
-	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+	se, err := saltpm.NewPCRSession(rwr, []tpm2.TPMSPCRSelection{
+		{
+			Hash:      tpm2.TPMAlgSHA256,
+			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(*pcr)),
+		},
+	})
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	rr, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
 		NamedHandle: &tpm2.NamedHandle{
 			Handle: tpm2.TPMHandle(*handle),
 			Name:   pub.Name,
 		},
+		AuthSession: se,
 	})
 
 	if err != nil {
@@ -99,29 +124,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	s, err := r.Sign(rand.Reader, digest, crypto.SHA256)
+	rs, err := rr.Sign(rand.Reader, digest, crypto.SHA256)
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
 	}
-	fmt.Printf("RSA Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
+	fmt.Printf("RSA Signed String: %s\n", base64.StdEncoding.EncodeToString(rs))
 
-	rsaPubKey, ok := r.Public().(*rsa.PublicKey)
+	rrsaPubKey, ok := rr.Public().(*rsa.PublicKey)
 	if !ok {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	opts := &rsa.PSSOptions{
-		Hash:       crypto.SHA256,
-		SaltLength: rsa.PSSSaltLengthAuto,
-	}
-	err = rsa.VerifyPSS(rsaPubKey, crypto.SHA256, digest, s, opts)
+	err = rsa.VerifyPKCS1v15(rrsaPubKey, crypto.SHA256, digest, rs)
 	if err != nil {
 		fmt.Println(err)
-		return
+		os.Exit(1)
 	}
-
 	fmt.Printf("RSA Signed String verified\n")
 
 }

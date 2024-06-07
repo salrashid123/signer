@@ -46,7 +46,8 @@ type TPM struct {
 	publicKey       crypto.PublicKey
 	tpmPublic       tpm2.TPMTPublic
 
-	AuthHandle       *tpm2.AuthHandle   // load a key from handle
+	NamedHandle      *tpm2.NamedHandle  // the name handle to the key to use
+	AuthSession      Session            // If the key needs a session, supply `Session` from this repo
 	TpmDevice        io.ReadWriteCloser // TPM read closer
 	EncryptionHandle tpm2.TPMHandle     // (optional) handle to use for transit encryption
 	EncryptionPub    *tpm2.TPMTPublic   // (optional) public key to use for transit encryption
@@ -71,14 +72,14 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 	if conf.TpmDevice == nil {
 		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: TpmDevice must be specified")
 	}
-	if conf.AuthHandle == nil {
-		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: AuthHandle and TpmDevice must be specified")
+	if conf.NamedHandle == nil {
+		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: NameHandke must be specified")
 	}
 	rwr := transport.FromReadWriter(conf.TpmDevice)
 
 	// todo: we should supply the encrypted session here, if set
 	pub, err := tpm2.ReadPublic{
-		ObjectHandle: conf.AuthHandle.Handle,
+		ObjectHandle: conf.NamedHandle.Handle,
 	}.Execute(rwr)
 	if err != nil {
 		return TPM{}, fmt.Errorf("google: Unable to Read Public data from TPM: %v", err)
@@ -160,8 +161,22 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		} else if opts.HashFunc() == crypto.SHA512 {
 			algid = tpm2.TPMAlgSHA512
 		} else {
-			return nil, fmt.Errorf("tpmjwt: unknown hash function %v", opts.HashFunc())
+			return nil, fmt.Errorf("signer: unknown hash function %v", opts.HashFunc())
 		}
+	}
+
+	var se tpm2.Session
+	if t.AuthSession != nil {
+		var err error
+		se, err = t.AuthSession.GetSession()
+		if err != nil {
+			return nil, fmt.Errorf("signer: error getting session %s", err)
+		}
+		defer func() {
+			_, err = (&tpm2.FlushContext{FlushHandle: se.Handle()}).Execute(rwr)
+		}()
+	} else {
+		se = tpm2.PasswordAuth(nil)
 	}
 
 	var tsig []byte
@@ -169,10 +184,15 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	case *rsa.PublicKey:
 		rd, err := t.tpmPublic.Parameters.RSADetail()
 		if err != nil {
-			return nil, fmt.Errorf("tpmjwt: can't error getting rsa details %v", err)
+			return nil, fmt.Errorf("signer: can't error getting rsa details %v", err)
 		}
 		rspSign, err := tpm2.Sign{
-			KeyHandle: *t.AuthHandle,
+			KeyHandle: tpm2.AuthHandle{
+				Handle: t.NamedHandle.Handle,
+				Name:   t.NamedHandle.Name,
+				Auth:   se,
+			},
+
 			Digest: tpm2.TPM2BDigest{
 				Buffer: digest[:],
 			},
@@ -187,22 +207,22 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			},
 		}.Execute(rwr, sess)
 		if err != nil {
-			return nil, fmt.Errorf("tpmjwt: can't Sign: %v", err)
+			return nil, fmt.Errorf("signer: can't Sign: %v", err)
 		}
 
 		var rsig *tpm2.TPMSSignatureRSA
 		if rspSign.Signature.SigAlg == tpm2.TPMAlgRSASSA {
 			rsig, err = rspSign.Signature.Signature.RSASSA()
 			if err != nil {
-				return nil, fmt.Errorf("tpmjwt: error getting rsa ssa signature: %v", err)
+				return nil, fmt.Errorf("signer: error getting rsa ssa signature: %v", err)
 			}
 		} else if rspSign.Signature.SigAlg == tpm2.TPMAlgRSAPSS {
 			rsig, err = rspSign.Signature.Signature.RSAPSS()
 			if err != nil {
-				return nil, fmt.Errorf("tpmjwt: error getting rsa pss signature: %v", err)
+				return nil, fmt.Errorf("signer: error getting rsa pss signature: %v", err)
 			}
 		} else {
-			return nil, fmt.Errorf("tpmjwt: unsupported signature algorithm't Sign: %v", err)
+			return nil, fmt.Errorf("signer: unsupported signature algorithm't Sign: %v", err)
 		}
 
 		tsig = rsig.Sig.Buffer
@@ -212,7 +232,12 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			return nil, fmt.Errorf("tpmjwt: can't error getting rsa details %v", err)
 		}
 		rspSign, err := tpm2.Sign{
-			KeyHandle: *t.AuthHandle,
+			KeyHandle: tpm2.AuthHandle{
+				Handle: t.NamedHandle.Handle,
+				Name:   t.NamedHandle.Name,
+				Auth:   se,
+			},
+
 			Digest: tpm2.TPM2BDigest{
 				Buffer: digest[:],
 			},
@@ -274,4 +299,58 @@ func (t TPM) TLSCertificate() (tls.Certificate, error) {
 		Leaf:        t.x509Certificate,
 		Certificate: [][]byte{t.x509Certificate.Raw},
 	}, nil
+}
+
+type Session interface {
+	io.Closer                                   // read closer to the TPM
+	GetSession() (auth tpm2.Session, err error) // this supplies the session handle to the library
+}
+
+// for pcr sessions
+type PCRSession struct {
+	rwr transport.TPM
+	sel []tpm2.TPMSPCRSelection
+}
+
+func NewPCRSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection) (PCRSession, error) {
+	return PCRSession{rwr, sel}, nil
+}
+
+func (p PCRSession) GetSession() (auth tpm2.Session, err error) {
+	sess, _, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: p.sel,
+		},
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, err
+	}
+	return sess, nil
+}
+
+func (p PCRSession) Close() error {
+	return nil
+}
+
+// for password sessions
+type PasswordSession struct {
+	rwr      transport.TPM
+	password []byte
+}
+
+func NewPasswordSession(rwr transport.TPM, password []byte) (PasswordSession, error) {
+	return PasswordSession{rwr, password}, nil
+}
+
+func (p PasswordSession) GetSession() (auth tpm2.Session, err error) {
+	return tpm2.PasswordAuth(p.password), nil
+}
+
+func (p PasswordSession) Close() error {
+	return nil
 }

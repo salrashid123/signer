@@ -91,10 +91,9 @@ func main() {
 
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: tpm2.TPMHandle(*persistentHandle),
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth([]byte("")),
 		},
 		ECCRawOutput: *useECCRawFormat,
 	})

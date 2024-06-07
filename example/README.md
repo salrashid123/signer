@@ -81,7 +81,7 @@ cd example/
 	tpm2_flushcontext  -t
 
 
-## for policyRSApersistentHandle
+## for policyPCR
 
 	tpm2_pcrread sha256:23
 	tpm2_startauthsession -S session.dat
@@ -96,6 +96,16 @@ cd example/
 	tpm2_evictcontrol -C o -c key.ctx 0x81008006
 	tpm2_flushcontext  -t
 
+## for policyPassword
+
+	tpm2_createprimary -C o  -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx 
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx 
+	tpm2_evictcontrol -C o -c key.ctx 0x81008007
+	tpm2_flushcontext  -t	
+
 ## ===== 
 
 cd example/
@@ -109,8 +119,11 @@ go run sign_verify_tpm/rsapss/main.go --handle=0x81008004 --tpm-path="127.0.0.1:
 ## ECC
 go run sign_verify_tpm/ecc/main.go --handle=0x81008005 --tpm-path="127.0.0.1:2321"
 
-## RSA with policy
-go run sign_verify_tpm/policy/main.go --handle=0x81008006 --tpm-path="127.0.0.1:2321"
+## RSA with pcr policy
+go run sign_verify_tpm/policy_pcr/main.go --handle=0x81008006 --tpm-path="127.0.0.1:2321"
+
+## RSA with password policy
+go run sign_verify_tpm/policy_password/main.go --handle=0x81008007 --tpm-path="127.0.0.1:2321"
 ```
 
 ---

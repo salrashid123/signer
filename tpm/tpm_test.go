@@ -50,6 +50,40 @@ var (
 		),
 	}
 
+	rsaTemplateNoUserWithAuth = tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgRSA,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			SignEncrypt:         true,
+			FixedTPM:            true,
+			FixedParent:         true,
+			SensitiveDataOrigin: true,
+			UserWithAuth:        false,
+		},
+		AuthPolicy: tpm2.TPM2BDigest{},
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPMSRSAParms{
+				Scheme: tpm2.TPMTRSAScheme{
+					Scheme: tpm2.TPMAlgRSASSA,
+					Details: tpm2.NewTPMUAsymScheme(
+						tpm2.TPMAlgRSASSA,
+						&tpm2.TPMSSigSchemeRSASSA{
+							HashAlg: tpm2.TPMAlgSHA256,
+						},
+					),
+				},
+				KeyBits: 2048,
+			},
+		),
+		Unique: tpm2.NewTPMUPublicID(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPM2BPublicKeyRSA{
+				Buffer: make([]byte, 256),
+			},
+		),
+	}
+
 	rsaPSSTemplate = tpm2.TPMTPublic{
 		Type:    tpm2.TPMAlgRSA,
 		NameAlg: tpm2.TPMAlgSHA256,
@@ -166,10 +200,9 @@ func TestTPMPublic(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: rsaKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 	}
 
@@ -237,10 +270,9 @@ func TestTPMSignRSA(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: rsaKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 	}
 
@@ -312,10 +344,9 @@ func TestTPMSignRSAFail(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: rsaKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 	}
 
@@ -387,10 +418,9 @@ func TestTPMSignRSAPSS(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: rsaKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 	}
 
@@ -472,10 +502,9 @@ func TestTPMSignECC(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: eccKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 	}
 
@@ -553,10 +582,9 @@ func TestTPMSignECCRAW(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: eccKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 		ECCRawOutput: true,
 	}
@@ -584,7 +612,7 @@ func TestTPMSignECCRAW(t *testing.T) {
 	require.True(t, ok)
 }
 
-func TestTPMSignPolicy(t *testing.T) {
+func TestTPMSignPCRPolicy(t *testing.T) {
 	tpmDevice, err := simulator.Get()
 	require.NoError(t, err)
 	defer tpmDevice.Close()
@@ -629,9 +657,9 @@ func TestTPMSignPolicy(t *testing.T) {
 	_, err = tpm2.FlushContext{FlushHandle: sess.Handle()}.Execute(rwr)
 	require.NoError(t, err)
 
-	pcrPolicyDigest := pgd.PolicyDigest.Buffer
-
-	rsaTemplate.AuthPolicy.Buffer = pcrPolicyDigest
+	rsaTemplateNoUserWithAuth.AuthPolicy = tpm2.TPM2BDigest{
+		Buffer: pgd.PolicyDigest.Buffer,
+	}
 
 	rsaKeyResponse, err := tpm2.CreateLoaded{
 		ParentHandle: tpm2.AuthHandle{
@@ -639,7 +667,7 @@ func TestTPMSignPolicy(t *testing.T) {
 			Name:   primaryKey.Name,
 			Auth:   tpm2.PasswordAuth(nil),
 		},
-		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+		InPublic: tpm2.New2BTemplate(&rsaTemplateNoUserWithAuth),
 	}.Execute(rwr)
 	require.NoError(t, err)
 
@@ -667,30 +695,21 @@ func TestTPMSignPolicy(t *testing.T) {
 	pubKey, err := tpm2.RSAPub(rsaDetail, rsaUnique)
 	require.NoError(t, err)
 
-	sess2, cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
-	require.NoError(t, err)
-	defer cleanup()
-
-	_, err = tpm2.PolicyPCR{
-		PolicySession: sess2.Handle(),
-		Pcrs: tpm2.TPMLPCRSelection{
-			PCRSelections: []tpm2.TPMSPCRSelection{
-				{
-					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
-				},
-			},
+	p, err := NewPCRSession(rwr, []tpm2.TPMSPCRSelection{
+		{
+			Hash:      tpm2.TPMAlgSHA256,
+			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
 		},
-	}.Execute(rwr)
+	})
 	require.NoError(t, err)
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: rsaKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   sess2,
 		},
+		AuthSession: p,
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -752,9 +771,9 @@ func TestTPMSignPolicyFail(t *testing.T) {
 	_, err = tpm2.FlushContext{FlushHandle: sess.Handle()}.Execute(rwr)
 	require.NoError(t, err)
 
-	pcrPolicyDigest := pgd.PolicyDigest.Buffer
-
-	rsaTemplate.AuthPolicy.Buffer = pcrPolicyDigest
+	rsaTemplateNoUserWithAuth.AuthPolicy = tpm2.TPM2BDigest{
+		Buffer: pgd.PolicyDigest.Buffer,
+	}
 
 	rsaKeyResponse, err := tpm2.CreateLoaded{
 		ParentHandle: tpm2.AuthHandle{
@@ -762,7 +781,7 @@ func TestTPMSignPolicyFail(t *testing.T) {
 			Name:   primaryKey.Name,
 			Auth:   tpm2.PasswordAuth(nil),
 		},
-		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+		InPublic: tpm2.New2BTemplate(&rsaTemplateNoUserWithAuth),
 	}.Execute(rwr)
 	require.NoError(t, err)
 
@@ -825,13 +844,20 @@ func TestTPMSignPolicyFail(t *testing.T) {
 	}.Execute(rwr)
 	require.NoError(t, err)
 
+	p, err := NewPCRSession(rwr, []tpm2.TPMSPCRSelection{
+		{
+			Hash:      tpm2.TPMAlgSHA256,
+			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
+		},
+	})
+	require.NoError(t, err)
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: rsaKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   sess2,
 		},
+		AuthSession: p,
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -916,10 +942,9 @@ func TestTPMEncryption(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: rsaKeyResponse.ObjectHandle,
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 		EncryptionHandle: createEKRsp.ObjectHandle,
 		EncryptionPub:    encryptionPub,

@@ -88,10 +88,9 @@ func main() {
 
 	er, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: tpm2.TPMHandle(*handle),
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 		ECCRawOutput: true, // use raw output; not asn1
 	})
@@ -131,10 +130,9 @@ func main() {
 	// now verify with ASN1 output format for ecc using library managed device
 	erasn, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
-		AuthHandle: &tpm2.AuthHandle{
+		NamedHandle: &tpm2.NamedHandle{
 			Handle: tpm2.TPMHandle(*handle),
 			Name:   pub.Name,
-			Auth:   tpm2.PasswordAuth(nil),
 		},
 		//ECCRawOutput: false,
 	})
