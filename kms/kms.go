@@ -27,8 +27,7 @@ import (
 const ()
 
 var (
-	refreshMutex    = &sync.Mutex{}
-	x509Certificate x509.Certificate
+	refreshMutex = &sync.Mutex{}
 )
 
 type KMS struct {
@@ -112,7 +111,7 @@ func (t KMS) TLSCertificate() (tls.Certificate, error) {
 	return tls.Certificate{
 		PrivateKey:  privKey,
 		Leaf:        t.x509Certificate,
-		Certificate: [][]byte{x509Certificate.Raw},
+		Certificate: [][]byte{t.x509Certificate.Raw},
 	}, nil
 }
 
