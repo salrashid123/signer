@@ -126,5 +126,47 @@ go run sign_verify_tpm/policy_pcr/main.go --handle=0x81008006 --tpm-path="127.0.
 go run sign_verify_tpm/policy_password/main.go --handle=0x81008007 --tpm-path="127.0.0.1:2321"
 ```
 
+Note, you can define your own policy for import too...just implement the "session" interface from the signer:
+
+```golang
+type Session interface {
+	GetSession() (auth tpm2.Session, closer func() error, err error) // this supplies the session handle to the library
+}
+```
+
+eg: 
+
+```golang
+// for pcr sessions
+type MyCustomSession struct {
+	rwr transport.TPM
+	sel []tpm2.TPMSPCRSelection
+}
+
+func NewMyCustomSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection) (MyCustomSession, error) {
+	return MyCustomSession{rwr, sel}, nil
+}
+
+func (p MyCustomSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
+
+	sess, closer, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// implement whatever you want here, i'm just using policypcr
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: p.sel,
+		},
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sess, closer, nil
+}
+```
 ---
 
