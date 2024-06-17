@@ -12,7 +12,9 @@ Use the signer to create a TLS session, sign CA/CSRs, generate signed url or jus
 Some implementations:
 
 - `kms/`:  Sample that implements `crypto.Signer` using Google Cloud KMS.
-- `tpm/`:  Sample that implements `crypto.Signer`  using `go-tpm` library for Trusted Platform Module    This internally uses [go-tpm-tools.client.GetSigner()](https://pkg.go.dev/github.com/google/go-tpm-tools/client#Key.GetSigner)
+- `tpm/`:  Sample that implements `crypto.Signer`  using `go-tpm` library for Trusted Platform Module.
+
+other stuff:
 
 - `util/certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
 - `util/csrgen/`:  Library that generates a CSR using the key in KMS or TPM 
@@ -80,7 +82,7 @@ If you just want to issue JWT's, see
 
   The TPM device is managed externally outside of the signer.  You have to instantiate the TPM device ReadWriteCloser and client.Key outside of the library and pass that in.
 
-  The advantage of this is you control it opening and closing.  You must close the key and closer before calling another signing operation.  
+  The advantage of this is you control it opening and closing.
 
   ```golang
 	rwc, err := OpenTPM(*tpmPath)
@@ -97,8 +99,14 @@ If you just want to issue JWT's, see
 			Name:   pub.Name,
 		},
 	})
-	// the tpm is opened and then closed after every sign operation
+
 	s, err := r.Sign(rand.Reader, digest, crypto.SHA256)
+
+	// close the TPM if you are done signing
+	rwc.Close()
+
+	// you need to reinitialize NewTPMCrypto if you 
+	// want to sign again after closing
   ```
 
   

@@ -19,15 +19,11 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"net"
 	"os"
-	"slices"
 	"sync"
 
-	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
-	"github.com/google/go-tpm/tpmutil"
 )
 
 const ()
@@ -51,18 +47,6 @@ type TPM struct {
 	TpmDevice        io.ReadWriteCloser // TPM read closer
 	EncryptionHandle tpm2.TPMHandle     // (optional) handle to use for transit encryption
 	EncryptionPub    *tpm2.TPMTPublic   // (optional) public key to use for transit encryption
-}
-
-var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
-
-func OpenTPM(path string) (io.ReadWriteCloser, error) {
-	if slices.Contains(TPMDEVICES, path) {
-		return tpmutil.OpenTPM(path)
-	} else if path == "simulator" {
-		return simulator.GetWithFixedSeedInsecure(1073741825)
-	} else {
-		return net.Dial("tcp", path)
-	}
 }
 
 // Configure a new TPM crypto.Signer
