@@ -34,11 +34,16 @@ const ()
 type TPM struct {
 	crypto.Signer
 
-	ECCRawOutput   bool // for ECC keys, output raw signatures. If false, signature is ans1 formatted
-	refreshMutex   sync.Mutex
+	ECCRawOutput bool // for ECC keys, output raw signatures. If false, signature is ans1 formatted
+	refreshMutex sync.Mutex
+
+	// PublicCertFile path to the x509 certificate for the signer.  Used for TLS
+	//
+	// Deprecated: use X509Certificate instead
 	PublicCertFile string // a provided public x509 certificate for the signer
 
-	x509Certificate *x509.Certificate
+	// X509Certificate raw x509 certificate for the signer. Used for TLS
+	X509Certificate *x509.Certificate // public x509 certificate for the signer
 	publicKey       crypto.PublicKey
 	tpmPublic       tpm2.TPMTPublic
 
@@ -53,11 +58,14 @@ type TPM struct {
 
 func NewTPMCrypto(conf *TPM) (TPM, error) {
 
+	if conf.X509Certificate != nil && conf.PublicCertFile != "" {
+		return TPM{}, fmt.Errorf("salrashid123/signer: Either X509Certificate or a the path to the certificate must be specified; not both")
+	}
 	if conf.TpmDevice == nil {
-		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: TpmDevice must be specified")
+		return TPM{}, fmt.Errorf("salrashid123/signer: TpmDevice must be specified")
 	}
 	if conf.NamedHandle == nil {
-		return TPM{}, fmt.Errorf("salrashid123/x/oauth2/google: NameHandke must be specified")
+		return TPM{}, fmt.Errorf("salrashid123/signer: NameHandke must be specified")
 	}
 	rwr := transport.FromReadWriter(conf.TpmDevice)
 
@@ -66,42 +74,42 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 		ObjectHandle: conf.NamedHandle.Handle,
 	}.Execute(rwr)
 	if err != nil {
-		return TPM{}, fmt.Errorf("google: Unable to Read Public data from TPM: %v", err)
+		return TPM{}, fmt.Errorf("salrashid123/signer: Unable to Read Public data from TPM: %v", err)
 	}
 
 	pc, err := pub.OutPublic.Contents()
 	if err != nil {
-		return TPM{}, fmt.Errorf("google: Unable to Read Public content TPM: %v", err)
+		return TPM{}, fmt.Errorf("salrashid123/signer: Unable to Read Public content TPM: %v", err)
 	}
 	conf.tpmPublic = *pc
 	if pc.Type == tpm2.TPMAlgRSA {
 		rsaDetail, err := pc.Parameters.RSADetail()
 		if err != nil {
-			return TPM{}, fmt.Errorf("google: Unable to Read Public rsa parameters TPM: %v", err)
+			return TPM{}, fmt.Errorf("salrashid123/signer: Unable to Read Public rsa parameters TPM: %v", err)
 		}
 
 		rsaUnique, err := pc.Unique.RSA()
 		if err != nil {
-			return TPM{}, fmt.Errorf("google: Unable to Read Public rsa unique TPM: %v", err)
+			return TPM{}, fmt.Errorf("salrashid123/signer: Unable to Read Public rsa unique TPM: %v", err)
 		}
 		rsaPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
 		if err != nil {
-			return TPM{}, fmt.Errorf("google: Unable to create RSAPublic TPM: %v", err)
+			return TPM{}, fmt.Errorf("salrashid123/signer: Unable to create RSAPublic TPM: %v", err)
 		}
 
 		conf.publicKey = rsaPub
 	} else if pc.Type == tpm2.TPMAlgECC {
 		ecDetail, err := pc.Parameters.ECCDetail()
 		if err != nil {
-			return TPM{}, fmt.Errorf("google: Unable to Read Public ec parameters TPM: %v", err)
+			return TPM{}, fmt.Errorf("salrashid123/signer: Unable to Read Public ec parameters TPM: %v", err)
 		}
 		crv, err := ecDetail.CurveID.Curve()
 		if err != nil {
-			return TPM{}, fmt.Errorf("google: Unable to Read Public ec curve TPM: %v", err)
+			return TPM{}, fmt.Errorf("salrashid123/signer: Unable to Read Public ec curve TPM: %v", err)
 		}
 		eccUnique, err := pc.Unique.ECC()
 		if err != nil {
-			return TPM{}, fmt.Errorf("google: Unable to Read Public ec unique TPM: %v", err)
+			return TPM{}, fmt.Errorf("salrashid123/signer: Unable to Read Public ec unique TPM: %v", err)
 		}
 		conf.publicKey = &ecdsa.PublicKey{
 			Curve: crv,
@@ -109,7 +117,7 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 			Y:     big.NewInt(0).SetBytes(eccUnique.Y.Buffer),
 		}
 	} else {
-		return TPM{}, fmt.Errorf("google: Unsupported key type: %v", pc.Type)
+		return TPM{}, fmt.Errorf("salrashid123/signer: Unsupported key type: %v", pc.Type)
 	}
 
 	return *conf, nil
@@ -256,11 +264,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 
 func (t TPM) TLSCertificate() (tls.Certificate, error) {
 
-	if t.PublicCertFile == "" {
-		return tls.Certificate{}, fmt.Errorf("Public X509 certificate not specified")
-	}
-
-	if t.x509Certificate == nil {
+	if t.X509Certificate == nil {
 		pubPEM, err := os.ReadFile(t.PublicCertFile)
 		if err != nil {
 			return tls.Certificate{}, fmt.Errorf("unable to read public certificate file %v", err)
@@ -273,14 +277,14 @@ func (t TPM) TLSCertificate() (tls.Certificate, error) {
 		if err != nil {
 			return tls.Certificate{}, fmt.Errorf("unable to read public certificate file %v", err)
 		}
-		t.x509Certificate = pub
+		t.X509Certificate = pub
 	}
 
 	var privKey crypto.PrivateKey = t
 	return tls.Certificate{
 		PrivateKey:  privKey,
-		Leaf:        t.x509Certificate,
-		Certificate: [][]byte{t.x509Certificate.Raw},
+		Leaf:        t.X509Certificate,
+		Certificate: [][]byte{t.X509Certificate.Raw},
 	}, nil
 }
 

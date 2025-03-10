@@ -56,30 +56,32 @@ cd example/
 ## RSA - no password
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
-	tpm2_flushcontext  -t
 	tpm2_getcap  handles-transient
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008001
-	tpm2_flushcontext  -t
+
+### RSA - no password with PEM key file
+
+	printf '\x00\x00' > unique.dat
+	tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
+
+	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx  --format=pem --output=rsapss_public.pem
+	tpm2_getcap  handles-transient
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o key.pem
 
 ## rsa-pss
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx  --format=pem --output=rsapss_public.pem
-	tpm2_flushcontext  -t
 	tpm2_getcap  handles-transient 
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008004
-	tpm2_flushcontext  -t
 
 ## ecc
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx  --format=pem --output=ecc_public.pem
-	tpm2_flushcontext  -t
 	tpm2_getcap  handles-transient  
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008005    
-	tpm2_flushcontext  -t
-
 
 ## for policyPCR
 
@@ -87,24 +89,19 @@ cd example/
 	tpm2_startauthsession -S session.dat
 	tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
 	tpm2_flushcontext session.dat
-	tpm2_flushcontext  -t
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx  -L policy.dat
-	tpm2_flushcontext  -t
 	tpm2_getcap  handles-transient
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008006
-	tpm2_flushcontext  -t
 
 ## for policyPassword
 
 	tpm2_createprimary -C o  -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx 
-	tpm2_flushcontext  -t
 	tpm2_getcap  handles-transient
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx 
 	tpm2_evictcontrol -C o -c key.ctx 0x81008007
-	tpm2_flushcontext  -t	
 
 ## ===== 
 

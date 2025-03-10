@@ -40,12 +40,16 @@ type KMS struct {
 	KeyRing            string
 	Key                string
 	KeyVersion         string
-	x509Certificate    *x509.Certificate
+	X509Certificate    *x509.Certificate
 	ECCRawOutput       bool // for ECC keys, output raw signatures. If false, signature is ans1 formatted
 	SignatureAlgorithm x509.SignatureAlgorithm
 }
 
 func NewKMSCrypto(conf *KMS) (KMS, error) {
+
+	if conf.X509Certificate != nil && conf.PublicKeyFile != "" {
+		return KMS{}, fmt.Errorf("salrashid123/signer: Either X509Certificate or a the path to the certificate must be specified; not both")
+	}
 
 	if conf.SignatureAlgorithm == x509.UnknownSignatureAlgorithm {
 		conf.SignatureAlgorithm = x509.SHA256WithRSA
@@ -87,11 +91,7 @@ func (t KMS) Public() crypto.PublicKey {
 
 func (t KMS) TLSCertificate() (tls.Certificate, error) {
 
-	if t.PublicKeyFile == "" {
-		return tls.Certificate{}, fmt.Errorf("public X509 certificate not specified")
-	}
-
-	if t.x509Certificate == nil {
+	if t.X509Certificate == nil {
 		pubPEM, err := os.ReadFile(t.PublicKeyFile)
 		if err != nil {
 			return tls.Certificate{}, fmt.Errorf("unable to read keys %v", err)
@@ -104,14 +104,14 @@ func (t KMS) TLSCertificate() (tls.Certificate, error) {
 		if err != nil {
 			return tls.Certificate{}, fmt.Errorf("failed to parse public key: %v ", err)
 		}
-		t.x509Certificate = pub
+		t.X509Certificate = pub
 	}
 
 	var privKey crypto.PrivateKey = t
 	return tls.Certificate{
 		PrivateKey:  privKey,
-		Leaf:        t.x509Certificate,
-		Certificate: [][]byte{t.x509Certificate.Raw},
+		Leaf:        t.X509Certificate,
+		Certificate: [][]byte{t.X509Certificate.Raw},
 	}, nil
 }
 

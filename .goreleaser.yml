@@ -1,0 +1,48 @@
+project_name: github.com/salrashid123/signer
+version: 2
+release:
+  draft: true
+  github:
+    owner: salrashid123
+    name: github.com/salrashid123
+  name_template: '{{.Tag}}'
+  extra_files:
+gomod:
+  dir: ./tpm/
+  gobinary: go
+builds:
+- skip: true
+archives:
+  - id: archive
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
+    formats: ['tar.gz']
+    files:
+      - LICENSE*
+      - README*    
+      - dist/*.sig      
+snapshot:
+  version_template: '{{ .Version }}'
+checksum:
+  name_template: '{{ .ProjectName }}_checksums.txt'
+  algorithm: sha256
+dist: dist
+signs:
+  - cmd: gpg
+    id: gpg
+    artifacts: all
+    output: true
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}" # "5D8EA7261718FE5728BA937C97341836616BF511" salrashid123@gmail.com https://keyserver.ubuntu.com/pks/lookup?search=5D8EA7261718FE5728BA937C97341836616BF511&fingerprint=on&op=index
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+env_files:
+  github_token: ~/.config/goreleaser/github_token
+source:
+  name_template: '{{ .ProjectName }}-{{ .Version }}'
+  format: tar.gz
+github_urls:
+  download: https://github.com

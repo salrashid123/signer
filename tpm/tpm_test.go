@@ -6,7 +6,10 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"math/big"
+	"os"
 	"testing"
 
 	"github.com/google/go-tpm-tools/simulator"
@@ -962,4 +965,126 @@ func TestTPMEncryption(t *testing.T) {
 
 	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, digest, signature)
 	require.NoError(t, err)
+}
+
+func TestTPMPublicCertFile(t *testing.T) {
+	tpmDevice, err := simulator.Get()
+	require.NoError(t, err)
+	defer tpmDevice.Close()
+
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pubPEMData, err := os.ReadFile("../example/certs/server.crt")
+	require.NoError(t, err)
+
+	block, _ := pem.Decode(pubPEMData)
+	require.NoError(t, err)
+
+	filex509, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+
+	conf := TPM{
+		TpmDevice: tpmDevice,
+		NamedHandle: &tpm2.NamedHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+		},
+		PublicCertFile: "../example/certs/server.crt",
+	}
+
+	tpm, err := NewTPMCrypto(&conf)
+	require.NoError(t, err)
+
+	tcert, err := tpm.TLSCertificate()
+	require.NoError(t, err)
+
+	require.Equal(t, tcert.Leaf, filex509)
+}
+
+func TestTPMX509(t *testing.T) {
+	tpmDevice, err := simulator.Get()
+	require.NoError(t, err)
+	defer tpmDevice.Close()
+
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pubPEMData, err := os.ReadFile("../example/certs/server.crt")
+	require.NoError(t, err)
+
+	block, _ := pem.Decode(pubPEMData)
+	require.NoError(t, err)
+
+	filex509, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+
+	conf := TPM{
+		TpmDevice: tpmDevice,
+		NamedHandle: &tpm2.NamedHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+		},
+		X509Certificate: filex509,
+	}
+
+	tpm, err := NewTPMCrypto(&conf)
+	require.NoError(t, err)
+
+	tcert, err := tpm.TLSCertificate()
+	require.NoError(t, err)
+
+	require.Equal(t, tcert.Leaf, filex509)
 }

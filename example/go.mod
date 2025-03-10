@@ -1,8 +1,8 @@
 module main
 
-go 1.22
+go 1.22.0
 
-toolchain go1.22.2
+toolchain go1.24.0
 
 require (
 	github.com/google/go-tpm v0.9.1
@@ -20,6 +20,7 @@ require (
 	cloud.google.com/go/kms v1.17.1 // indirect
 	cloud.google.com/go/longrunning v0.5.7 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/foxboron/go-tpm-keyfiles v0.0.0-20241207144721-04534a2f2feb // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
