@@ -1,8 +1,6 @@
 #### crypto.Signer, implementations for Trusted Platform Modules
 
-where private keys as embedded inside:
-
-* `Trusted Platform Module (TPM)`
+where private keys as embedded inside `Trusted Platform Module (TPM)`
 
 Basically, you will get a `crypto.Signer` interface where the private keys are saved on those platform.  
 

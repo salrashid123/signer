@@ -1,7 +1,3 @@
-// Copyright 2020 Google LLC.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 // Creates a crypto.Signer() for TPM based credentials
 //   Support RSA, ECC and keys with policiyPCR
 // Also fulfils TLSCertificate() interface for use with TLS
