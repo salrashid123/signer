@@ -19,15 +19,11 @@ import (
 	"slices"
 	"time"
 
-	//salpem "github.com/salrashid123/signer/pem"
-	//salkms "github.com/salrashid123/signer/kms"
-
 	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
 	saltpm "github.com/salrashid123/signer/tpm"
-	//salvault "github.com/salrashid123/signer/vault"
 )
 
 /*
@@ -109,15 +105,6 @@ func main() {
 		},
 		ECCRawOutput: *useECCRawFormat,
 	})
-
-	// r, err := salkms.NewKMSCrypto(&salkms.KMS{
-	// 	ProjectId:          "mineral-minutia-820",
-	// 	LocationId:         "us-central1",
-	// 	KeyRing:            "kr",
-	// 	Key:                "s",
-	// 	KeyVersion:         "1",
-	// 	SignatureAlgorithm: x509.SHA256WithRSA,
-	// })
 
 	if err != nil {
 		log.Fatal(err)
