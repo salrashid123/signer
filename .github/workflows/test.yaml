@@ -22,4 +22,3 @@ jobs:
 
       - name: Run tests
         run: go test -v ./...
-        working-directory: tpm
