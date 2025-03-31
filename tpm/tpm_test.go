@@ -187,11 +187,6 @@ func TestTPMPublic(t *testing.T) {
 	}.Execute(rwr)
 	require.NoError(t, err)
 
-	pub, err := tpm2.ReadPublic{
-		ObjectHandle: rsaKeyResponse.ObjectHandle,
-	}.Execute(rwr)
-	require.NoError(t, err)
-
 	defer func() {
 		flushContextCmd := tpm2.FlushContext{
 			FlushHandle: rsaKeyResponse.ObjectHandle,
@@ -201,10 +196,7 @@ func TestTPMPublic(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-			Name:   pub.Name,
-		},
+		Handle:    rsaKeyResponse.ObjectHandle,
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -271,10 +263,90 @@ func TestTPMSignRSA(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-			Name:   pub.Name,
+		Handle:    rsaKeyResponse.ObjectHandle,
+	}
+
+	tpm, err := NewTPMCrypto(&conf)
+	require.NoError(t, err)
+
+	hash := crypto.SHA256.New()
+	hash.Write([]byte("test digest"))
+	digest := hash.Sum(nil)
+
+	signature, err := tpm.Sign(tpmDevice, digest, nil)
+	require.NoError(t, err)
+
+	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, digest, signature)
+	require.NoError(t, err)
+}
+
+func TestTPMSignRSAPersistentHandle(t *testing.T) {
+	tpmDevice, err := simulator.Get()
+	require.NoError(t, err)
+	defer tpmDevice.Close()
+
+	rwr := transport.FromReadWriter(tpmDevice)
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
 		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
+	require.NoError(t, err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
+	pub, err := tpm2.ReadPublic{
+		ObjectHandle: rsaKeyResponse.ObjectHandle,
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	outPub, err := pub.OutPublic.Contents()
+	require.NoError(t, err)
+
+	rsaDetail, err := outPub.Parameters.RSADetail()
+	require.NoError(t, err)
+
+	rsaUnique, err := outPub.Unique.RSA()
+	require.NoError(t, err)
+
+	pubKey, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	require.NoError(t, err)
+
+	persistentHandle := 0x81008001
+
+	_, err = tpm2.EvictControl{
+		Auth: tpm2.TPMRHOwner,
+		ObjectHandle: &tpm2.NamedHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   rsaKeyResponse.Name,
+		},
+		PersistentHandle: tpm2.TPMHandle(persistentHandle),
+	}.Execute(rwr)
+	require.NoError(t, err)
+
+	conf := TPM{
+		TpmDevice: tpmDevice,
+		Handle:    tpm2.TPMHandle(persistentHandle),
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -345,10 +417,7 @@ func TestTPMSignRSAFail(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-			Name:   pub.Name,
-		},
+		Handle:    rsaKeyResponse.ObjectHandle,
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -419,10 +488,7 @@ func TestTPMSignRSAPSS(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-			Name:   pub.Name,
-		},
+		Handle:    rsaKeyResponse.ObjectHandle,
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -503,10 +569,7 @@ func TestTPMSignECC(t *testing.T) {
 
 	conf := TPM{
 		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: eccKeyResponse.ObjectHandle,
-			Name:   pub.Name,
-		},
+		Handle:    eccKeyResponse.ObjectHandle,
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -582,11 +645,8 @@ func TestTPMSignECCRAW(t *testing.T) {
 	}
 
 	conf := TPM{
-		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: eccKeyResponse.ObjectHandle,
-			Name:   pub.Name,
-		},
+		TpmDevice:    tpmDevice,
+		Handle:       eccKeyResponse.ObjectHandle,
 		ECCRawOutput: true,
 	}
 
@@ -705,11 +765,8 @@ func TestTPMSignPCRPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	conf := TPM{
-		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-			Name:   pub.Name,
-		},
+		TpmDevice:   tpmDevice,
+		Handle:      rsaKeyResponse.ObjectHandle,
 		AuthSession: p,
 	}
 
@@ -793,11 +850,6 @@ func TestTPMSignPolicyFail(t *testing.T) {
 		_, _ = flushContextCmd.Execute(rwr)
 	}()
 
-	pub, err := tpm2.ReadPublic{
-		ObjectHandle: rsaKeyResponse.ObjectHandle,
-	}.Execute(rwr)
-	require.NoError(t, err)
-
 	/// extend pcr value
 
 	pcrReadRsp, err := tpm2.PCRRead{
@@ -853,11 +905,8 @@ func TestTPMSignPolicyFail(t *testing.T) {
 	})
 	require.NoError(t, err)
 	conf := TPM{
-		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-			Name:   pub.Name,
-		},
+		TpmDevice:   tpmDevice,
+		Handle:      rsaKeyResponse.ObjectHandle,
 		AuthSession: p,
 	}
 
@@ -892,8 +941,6 @@ func TestTPMEncryption(t *testing.T) {
 		}
 		_, _ = flushContextCmd.Execute(rwr)
 	}()
-	encryptionPub, err := createEKRsp.OutPublic.Contents()
-	require.NoError(t, err)
 
 	primaryKey, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHOwner,
@@ -942,13 +989,9 @@ func TestTPMEncryption(t *testing.T) {
 	require.NoError(t, err)
 
 	conf := TPM{
-		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-			Name:   pub.Name,
-		},
+		TpmDevice:        tpmDevice,
+		Handle:           rsaKeyResponse.ObjectHandle,
 		EncryptionHandle: createEKRsp.ObjectHandle,
-		EncryptionPub:    encryptionPub,
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -1010,10 +1053,8 @@ func TestTPMPublicCertFile(t *testing.T) {
 	require.NoError(t, err)
 
 	conf := TPM{
-		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-		},
+		TpmDevice:      tpmDevice,
+		Handle:         rsaKeyResponse.ObjectHandle,
 		PublicCertFile: "../example/certs/server.crt",
 	}
 
@@ -1071,10 +1112,8 @@ func TestTPMX509(t *testing.T) {
 	require.NoError(t, err)
 
 	conf := TPM{
-		TpmDevice: tpmDevice,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-		},
+		TpmDevice:       tpmDevice,
+		Handle:          rsaKeyResponse.ObjectHandle,
 		X509Certificate: filex509,
 	}
 

@@ -108,13 +108,6 @@ func main() {
 		log.Fatalf("can't load  hmacKey : %v", err)
 	}
 
-	pub, err := tpm2.ReadPublic{
-		ObjectHandle: rsaKey.ObjectHandle,
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing tpm2.ReadPublic %v", err)
-	}
-
 	stringToSign := "foo"
 	fmt.Printf("Data to sign %s\n", stringToSign)
 
@@ -126,10 +119,7 @@ func main() {
 
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: rsaKey.ObjectHandle,
-			Name:   pub.Name,
-		},
+		Handle:    rsaKey.ObjectHandle,
 	})
 
 	if err != nil {

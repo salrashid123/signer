@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
 	saltpm "github.com/salrashid123/signer/tpm"
 )
@@ -68,15 +67,6 @@ func main() {
 		}
 	}()
 
-	rwr := transport.FromReadWriter(rwc)
-
-	pub, err := tpm2.ReadPublic{
-		ObjectHandle: tpm2.TPMHandle(*handle),
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing tpm2.ReadPublic %v", err)
-	}
-
 	stringToSign := "foo"
 	fmt.Printf("Data to sign %s\n", stringToSign)
 
@@ -87,11 +77,8 @@ func main() {
 	digest := h.Sum(nil)
 
 	er, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-		TpmDevice: rwc,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: tpm2.TPMHandle(*handle),
-			Name:   pub.Name,
-		},
+		TpmDevice:    rwc,
+		Handle:       tpm2.TPMHandle(*handle),
 		ECCRawOutput: true, // use raw output; not asn1
 	})
 	if err != nil {
@@ -130,10 +117,7 @@ func main() {
 	// now verify with ASN1 output format for ecc using library managed device
 	erasn, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: tpm2.TPMHandle(*handle),
-			Name:   pub.Name,
-		},
+		Handle:    tpm2.TPMHandle(*handle),
 		//ECCRawOutput: false,
 	})
 	if err != nil {

@@ -75,13 +75,6 @@ func main() {
 
 	rwr := transport.FromReadWriter(rwc)
 
-	pub, err := tpm2.ReadPublic{
-		ObjectHandle: tpm2.TPMHandle(*handle),
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing tpm2.ReadPublic %v", err)
-	}
-
 	stringToSign := "foo"
 	fmt.Printf("Data to sign %s\n", stringToSign)
 
@@ -98,11 +91,8 @@ func main() {
 	}
 
 	rr, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-		TpmDevice: rwc,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: tpm2.TPMHandle(*handle),
-			Name:   pub.Name,
-		},
+		TpmDevice:   rwc,
+		Handle:      tpm2.TPMHandle(*handle),
 		AuthSession: se,
 	})
 

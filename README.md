@@ -79,16 +79,9 @@ If you just want to issue JWT's, see
 	rwc, err := OpenTPM(*tpmPath)
 	rwr := transport.FromReadWriter(rwc)
 
-	pub, err := tpm2.ReadPublic{
-		ObjectHandle: tpm2.TPMHandle(*handle),
-	}.Execute(rwr)
-
 	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: tpm2.TPMHandle(*handle),
-			Name:   pub.Name,
-		},
+		Handle:    tpm2.TPMHandle(persistentHandle),
 	})
 
 	s, err := r.Sign(rand.Reader, digest, crypto.SHA256)
@@ -274,10 +267,7 @@ which you can call as:
 
 	rr, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice: rwc,
-		NamedHandle: &tpm2.NamedHandle{
-			Handle: tpm2.TPMHandle(*handle),
-			Name:   pub.Name,
-		},
+		Handle:    tpm2.TPMHandle(*handle*),
 		AuthSession: se,
 	})
 ```

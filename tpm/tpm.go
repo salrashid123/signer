@@ -43,11 +43,12 @@ type TPM struct {
 	publicKey       crypto.PublicKey
 	tpmPublic       tpm2.TPMTPublic
 
-	NamedHandle      *tpm2.NamedHandle  // the name handle to the key to use
+	//NamedHandle      *tpm2.NamedHandle  // the name handle to the key to use
+	Handle           tpm2.TPMHandle // the name handle to the key to use
+	name             tpm2.TPM2BName
 	AuthSession      Session            // If the key needs a session, supply `Session` from this repo
 	TpmDevice        io.ReadWriteCloser // TPM read closer
 	EncryptionHandle tpm2.TPMHandle     // (optional) handle to use for transit encryption
-	EncryptionPub    *tpm2.TPMTPublic   // (optional) public key to use for transit encryption
 }
 
 // Configure a new TPM crypto.Signer
@@ -60,18 +61,17 @@ func NewTPMCrypto(conf *TPM) (TPM, error) {
 	if conf.TpmDevice == nil {
 		return TPM{}, fmt.Errorf("salrashid123/signer: TpmDevice must be specified")
 	}
-	if conf.NamedHandle == nil {
-		return TPM{}, fmt.Errorf("salrashid123/signer: NameHandke must be specified")
-	}
+
 	rwr := transport.FromReadWriter(conf.TpmDevice)
 
 	// todo: we should supply the encrypted session here, if set
 	pub, err := tpm2.ReadPublic{
-		ObjectHandle: conf.NamedHandle.Handle,
+		ObjectHandle: tpm2.TPMIDHObject(conf.Handle.HandleValue()),
 	}.Execute(rwr)
 	if err != nil {
 		return TPM{}, fmt.Errorf("salrashid123/signer: Unable to Read Public data from TPM: %v", err)
 	}
+	conf.name = pub.Name
 
 	pc, err := pub.OutPublic.Contents()
 	if err != nil {
@@ -131,8 +131,18 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 
 	var sess tpm2.Session
 
-	if t.EncryptionHandle != 0 && t.EncryptionPub != nil {
-		sess = tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn), tpm2.Salted(t.EncryptionHandle, *t.EncryptionPub))
+	if t.EncryptionHandle != 0 {
+		encryptionPub, err := tpm2.ReadPublic{
+			ObjectHandle: t.EncryptionHandle,
+		}.Execute(rwr)
+		if err != nil {
+			return nil, err
+		}
+		ePubName, err := encryptionPub.OutPublic.Contents()
+		if err != nil {
+			return nil, err
+		}
+		sess = tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn), tpm2.Salted(t.EncryptionHandle, *ePubName))
 	} else {
 		sess = tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn))
 	}
@@ -175,8 +185,8 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		}
 		rspSign, err := tpm2.Sign{
 			KeyHandle: tpm2.AuthHandle{
-				Handle: t.NamedHandle.Handle,
-				Name:   t.NamedHandle.Name,
+				Handle: t.Handle,
+				Name:   t.name,
 				Auth:   se,
 			},
 
@@ -220,8 +230,8 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		}
 		rspSign, err := tpm2.Sign{
 			KeyHandle: tpm2.AuthHandle{
-				Handle: t.NamedHandle.Handle,
-				Name:   t.NamedHandle.Name,
+				Handle: t.Handle,
+				Name:   t.name,
 				Auth:   se,
 			},
 
