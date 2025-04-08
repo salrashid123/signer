@@ -133,6 +133,7 @@ cd example/
 
 
 ## RSA - no password
+
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
 	tpm2_getcap  handles-transient
@@ -150,12 +151,14 @@ cd example/
 	tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o key.pem
 
 ## rsa-pss
+
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_getcap  handles-transient 
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008004
 
 ## ecc
+
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx  --format=pem --output=ecc_public.pem
 	tpm2_getcap  handles-transient  
@@ -188,6 +191,9 @@ cd example/
 
 ## RSA-SSA managed externally
 go run sign_verify_tpm/rsassa/main.go --handle=0x81008001 --tpm-path="127.0.0.1:2321"
+
+## RSA with PEM KeyFile
+go run sign_verify_tpm/keyfile/main.go --pemFile=/path/to/key.pem --tpm-path="127.0.0.1:2321"
 
 ## RSA-PSS
 go run sign_verify_tpm/rsapss/main.go --handle=0x81008004 --tpm-path="127.0.0.1:2321"
