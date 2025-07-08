@@ -42,20 +42,52 @@ If you need the raw output format, set `ECCRawOutput:       true` in the config.
 
 See the examples folder for usage
 
-### Usage: Generate self-signed certificate
-
-see `util/`
-
-```bash
-go run certgen/certgen.go -cn server.domain.com
-```
-
 ### Usage: Generate CSR
 
-see `util/csrgen/`
+The following will generate a TPM based key and then issue a CSR against it.
+
+also see [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed?tab=readme-ov-file#appendix)
+
 
 ```bash
-go run certgen/certgen.go -cn server.domain.com
+### create key, rsassa
+ # using H2 template ( https://gist.github.com/salrashid123/9822b151ebb66f4083c5f71fd4cdbe40 )
+printf '\x00\x00' > unique.dat
+tpm2_createprimary -C o -G ecc  -g sha256 \
+   -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
+   
+ tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+ tpm2_flushcontext -t
+ tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+ tpm2_evictcontrol -C o -c key.ctx 0x81008001
+ tpm2_flushcontext -t
+ tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o private.pem
+
+cd util/csrgen/
+go run csrgen/csrgen.go -cn server.domain.com  --persistentHandle 0x81008001
+```
+
+### Usage: Generate self-signed certificate
+
+The following will generate a key on the tpm, then use that RSA key to issue a CSR and then sign that CSR with by itself to get an x509.
+
+You can ofcourse modify it to just sign any csr with a TPM backed key
+
+
+```bash
+ # using H2 template ( https://gist.github.com/salrashid123/9822b151ebb66f4083c5f71fd4cdbe40 )
+printf '\x00\x00' > unique.dat
+tpm2_createprimary -C o -G ecc  -g sha256 \
+   -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
+
+ tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+ tpm2_flushcontext -t
+ tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+ tpm2_evictcontrol -C o -c key.ctx 0x81008002
+ tpm2_flushcontext -t
+ tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o private.pem
+
+go run certgen/certgen.go -cn server.domain.com --persistentHandle 0x81008002
 ```
 
 ---
@@ -65,6 +97,9 @@ If you just want to issue JWT's, see
 * [https://github.com/salrashid123/golang-jwt-tpm](https://github.com/salrashid123/golang-jwt-tpm)
 * [https://github.com/salrashid123/golang-jwt-pkcs11](https://github.com/salrashid123/golang-jwt-pkcs11)
 
+or real random:
+
+* [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
 
 ### TPM Signer Device management
 
@@ -98,8 +133,6 @@ TODO use a backoff retry similar to [tpmrand](https://github.com/salrashid123/tp
 
 ---
 
-
-
 ### Example Setup - TPM
 
 
@@ -121,7 +154,7 @@ cd example/
 
 ## if you want to use a software TPM, 
 # rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
-# sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+# swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
 
 ## then specify "127.0.0.1:2321"  as the TPM device path in the examples
 ## then for tpm2_tools, export the following var

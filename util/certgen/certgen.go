@@ -99,7 +99,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	createSelfSignedPubCert(r)
+	err = createSelfSignedPubCert(r)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 }
 

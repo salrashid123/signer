@@ -14,8 +14,9 @@ The following uses TPM based signers
 
 
  # using H2 template ( https://gist.github.com/salrashid123/9822b151ebb66f4083c5f71fd4cdbe40 )
-   printf '\x00\x00' > unique.dat
-   tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
+printf '\x00\x00' > unique.dat
+tpm2_createprimary -C o -G ecc  -g sha256 \
+   -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
  ### which you ca eventually export the keys to TSS
  ## tpm2tss-genkey -u key.pub -r key.priv private.pem
 
@@ -29,6 +30,7 @@ The following uses TPM based signers
  tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
  tpm2_evictcontrol -C o -c key.ctx 0x81008001
  tpm2_flushcontext -t
+ tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o private.pem
 
 ## ===== ECC
  tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx
@@ -36,6 +38,7 @@ The following uses TPM based signers
  tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
  tpm2_evictcontrol -C o -c key.ctx 0x81008002
  tpm2_flushcontext -t 
+ tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o private.pem
 ```
 
 #### Create CSR 

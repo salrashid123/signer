@@ -88,7 +88,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	createCSR(r)
+	err = createCSR(r)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 }
 
@@ -105,8 +108,9 @@ func createCSR(t crypto.Signer) error {
 			Country:            []string{"US"},
 			CommonName:         *cn,
 		},
-		DNSNames:           []string{*sni},
-		SignatureAlgorithm: x509.SHA256WithRSAPSS,
+		DNSNames: []string{*sni},
+		//SignatureAlgorithm: x509.SHA256WithRSAPSS,
+		SignatureAlgorithm: x509.SHA256WithRSA,
 	}
 
 	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrtemplate, t)
