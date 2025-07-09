@@ -2,9 +2,9 @@
 
 where private keys as embedded inside `Trusted Platform Module (TPM)`
 
-Basically, you will get a `crypto.Signer` interface where the private keys are saved on those platform.  
+Basically, you will get a [crypto.Signer](https://pkg.go.dev/crypto#Signer) interface for the private key..  
 
-Use the signer to create a TLS session, sign CA/CSRs, generate signed url or just sign anything.
+Use the signer to create a TLS session, sign CA/CSRs, or just sign anything.
 
 For example, you can use this to sign data or to generate certificates/csr or for mTLS.
 
@@ -26,9 +26,10 @@ Initialize a signer and directly use `.sign()` as shown in this below and in the
 ```golang
 import (
 	saltpm "github.com/salrashid123/signer/tpm"
+	"github.com/google/go-tpm/tpmutil"
 )
 
-	rwc, err := simulator.Get()
+	rwc, err := tpmutil.OpenTPM(path)
 
 	stringToSign := []byte("foo")
 
@@ -133,13 +134,7 @@ example usage generates a new TPM unrestricted RSA key and sign,verify some data
 
 You can create the persistent handles using go-tpm or using  `tpm2_tools` and make it persistent, 
 
-First install latest `tpm2_tools`
-
-```bash
-## install latest tpm2-tools:
-####  https://github.com/salrashid123/tpm2/tree/master?tab=readme-ov-file#installing-tpm2_tools-golang
-#### https://tpm2-tools.readthedocs.io/en/latest/INSTALL/
-```
+First install latest [tpm2_tools](https://tpm2-tools.readthedocs.io/en/latest/INSTALL/)
 
 ```bash
 cd example/
@@ -149,7 +144,7 @@ cd example/
 # swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
 
 ## then specify "127.0.0.1:2321"  as the TPM device path in the examples
-## then for tpm2_tools, export the following var
+## and for tpm2_tools, export the following var
 # export TPM2TOOLS_TCTI="swtpm:port=2321"
 
 ## note if you want, the primary can be the "H2" profile from https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html#name-parent
@@ -254,7 +249,7 @@ type Session interface {
 }
 ```
 
-for example, for a PCR and [AuthPolicy](https://github.com/google/go-tpm/pull/359) enforcement (eg, a PCR and password), you can define a custom session callback
+for example, for a PCR and [AuthPolicy](https://github.com/google/go-tpm/pull/359) enforcement (eg, a PCR and password), you can define a custom session callback.
 
 ```golang
 type MyPCRAndPolicyAuthValueSession struct {
