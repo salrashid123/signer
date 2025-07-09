@@ -21,33 +21,55 @@ see the [example/](example/) folder for more information.
 
 ### Usage Signer
 
-Initialize a signer and directly use `.sign()` as shown in this sample for GCS SignedURL:
+Initialize a signer and directly use `.sign()` as shown in this below and in the samples
 
-* [GCS SignedURL for KMS](https://github.com/salrashid123/kms_service_accounts)
-* [GCS signedURLs and GCP Authentication with Trusted Platform Module](https://github.com/salrashid123/gcs_tpm)
+```golang
+import (
+	saltpm "github.com/salrashid123/signer/tpm"
+)
+
+	rwc, err := simulator.Get()
+
+	stringToSign := []byte("foo")
+
+	h := sha256.New()
+	h.Write(b)
+	digest := h.Sum(nil)
+
+	// assume the handle to the rsassa key is persistentHandle 0x81008001
+	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+		TpmDevice: rwc,
+		Handle:    tpm2.TPMHandle(handle),
+	})
+
+	s, err := r.Sign(rand.Reader, digest, crypto.SHA256)
+
+	fmt.Printf("RSA Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
+```
+
+* [https://pkg.go.dev/github.com/salrashid123/signer/tpm](https://pkg.go.dev/github.com/salrashid123/signer/tpm)
+
+---
+
+### Sign/Verify
+
+see `example/sign_verify_tpm` folder and the Example Setup section below
 
 ### Usage TLS
 
 * for tpm see [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
 
-### Sign/Verify PSS
-
-see `example/sign_verify*` folders
-
 ### Sign/Verify ECC
 
 The default output signature format for ECC based keys is ASN1 format as described in [ecdsa.SignASN1](https://pkg.go.dev/crypto/ecdsa#Sign)
 
-If you need the raw output format, set `ECCRawOutput:       true` in the config.
+If you need the raw output format, set `ECCRawOutput:  true` in the config.
 
 See the examples folder for usage
 
 ### Usage: Generate CSR
 
 The following will generate a TPM based key and then issue a CSR against it.
-
-also see [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed?tab=readme-ov-file#appendix)
-
 
 ```bash
 ### create key, rsassa
@@ -101,36 +123,6 @@ or real random:
 
 * [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
 
-### TPM Signer Device management
-
->> **NOTE** there will be a breaking change if you are using this library for TPM based signature after `v0.8.0`.  The new structure uses the [tpm-direct](https://github.com/google/go-tpm/releases/tag/v0.9.0) API.  If you would rather use the tpm2/legacy branch, please use the signer at [v0.7.2](https://github.com/salrashid123/signer/releases/tag/v0.7.2).   Library managed device was removed (it seems tpm resource managers work well enough...I'm clearly on the fence here given the recent commits..)
-
-
-  The TPM device is managed externally outside of the signer.  You have to instantiate the TPM device ReadWriteCloser and client.Key outside of the library and pass that in.
-
-  The advantage of this is you control it opening and closing.
-
-  ```golang
-	rwc, err := OpenTPM(*tpmPath)
-	rwr := transport.FromReadWriter(rwc)
-
-	r, err := saltpm.NewTPMCrypto(&saltpm.TPM{
-		TpmDevice: rwc,
-		Handle:    tpm2.TPMHandle(persistentHandle),
-	})
-
-	s, err := r.Sign(rand.Reader, digest, crypto.SHA256)
-
-	// close the TPM if you are done signing
-	rwc.Close()
-
-	// you need to reinitialize NewTPMCrypto if you 
-	// want to sign again after closing
-  ```
-
-  
-TODO use a backoff retry similar to [tpmrand](https://github.com/salrashid123/tpmrand) to prevent contention.
-
 ---
 
 ### Example Setup - TPM
@@ -169,9 +161,12 @@ cd example/
 
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
-	tpm2_getcap  handles-transient
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008001
+
+go run sign_verify_tpm/rsassa/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008001
+
 
 ### RSA - no password with PEM key file
 
@@ -179,24 +174,31 @@ cd example/
 	tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
 
 	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx  --format=pem --output=rsapss_public.pem
-	tpm2_getcap  handles-transient
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o key.pem
+
+go run sign_verify_tpm/keyfile/main.go --tpm-path="127.0.0.1:2321" -pemFile /tmp/key.pem
 
 ## rsa-pss
 
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_getcap  handles-transient 
+	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008004
+
+go run sign_verify_tpm/rsapss/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008004
 
 ## ecc
 
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx  --format=pem --output=ecc_public.pem
-	tpm2_getcap  handles-transient  
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008005    
+
+go run sign_verify_tpm/ecc/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008005
 
 ## for policyPCR
 
@@ -204,9 +206,10 @@ cd example/
 	tpm2_startauthsession -S session.dat
 	tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
 	tpm2_flushcontext session.dat
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx  -L policy.dat
-	tpm2_getcap  handles-transient
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008006
 
@@ -214,11 +217,13 @@ cd example/
 
 	tpm2_createprimary -C o  -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx 
-	tpm2_getcap  handles-transient
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx 
 	tpm2_evictcontrol -C o -c key.ctx 0x81008007
-
+    
 ## ===== 
+
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 
 cd example/
 
