@@ -2,7 +2,7 @@
 
 where private keys as embedded inside `Trusted Platform Module (TPM)`
 
-Basically, you will get a [crypto.Signer](https://pkg.go.dev/crypto#Signer) interface for the private key..  
+Basically, you will get a [crypto.Signer](https://pkg.go.dev/crypto#Signer) interface for the private key. 
 
 Use the signer to create a TLS session, sign CA/CSRs, or just sign anything.
 
@@ -54,7 +54,101 @@ import (
 
 ### Sign/Verify
 
-see `example/sign_verify_tpm` folder and the Example Setup section below
+see `example/sign_verify_tpm` folder.
+
+To use this, the key must be first created on the TPM and accessed as a PersistentHandle or TPM PEM file
+
+You can create these keys using `go-tpm` or using  `tpm2_tools`.  The example below uses tpm2_tools but for others languages and standalone applicatoins, see [openssl tpm2 provider](https://github.com/salrashid123/tpm2?tab=readme-ov-file#tpm-based-private-key) or [tpm2genkey](https://github.com/salrashid123/tpm2genkey)
+
+For this, install latest [tpm2_tools](https://tpm2-tools.readthedocs.io/en/latest/INSTALL/) 
+
+```bash
+cd example/
+
+## if you want to use a software TPM, 
+# rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
+# swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+
+## then specify "127.0.0.1:2321"  as the TPM device path in the examples
+## and for tpm2_tools, export the following var
+# export TPM2TOOLS_TCTI="swtpm:port=2321"
+
+## if you are using a real tpm set --tpm-path=/dev/tpmrm0
+
+## note the primary can be the "H2" profile from https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html#name-parent
+# printf '\x00\x00' > unique.dat
+# tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
+
+## RSA - no password
+
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008001
+
+go run sign_verify_tpm/rsassa/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008001
+
+
+### RSA - no password with PEM key file
+
+	printf '\x00\x00' > unique.dat
+	tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
+
+	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx  --format=pem --output=rsapss_public.pem
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o key.pem
+
+go run sign_verify_tpm/keyfile/main.go --tpm-path="127.0.0.1:2321" -pemFile /tmp/key.pem
+
+## rsa-pss
+
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008004
+
+go run sign_verify_tpm/rsapss/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008004
+
+## ecc
+
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx  --format=pem --output=ecc_public.pem
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008005    
+
+go run sign_verify_tpm/ecc/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008005
+
+## for policyPCR
+
+	tpm2_pcrread sha256:23
+	tpm2_startauthsession -S session.dat
+	tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
+	tpm2_flushcontext session.dat
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx  -L policy.dat
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008006
+
+go run sign_verify_tpm/policy_pcr/main.go --handle=0x81008006 --tpm-path="127.0.0.1:2321"
+
+## for policyPassword
+
+	tpm2_createprimary -C o  -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx 
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx 
+	tpm2_evictcontrol -C o -c key.ctx 0x81008007
+
+go run sign_verify_tpm/policy_password/main.go --handle=0x81008007 --tpm-path="127.0.0.1:2321"
+
+```
+
 
 ### Usage TLS
 
@@ -126,120 +220,46 @@ or real random:
 
 ---
 
-### Example Setup - TPM
+#### Keys with Auth Policy
+
+If the key is setup with an AuthPolicy (eg, a policy that requires a passphrase or a predefined PCR values to exist), you can specify those in code or define your own
 
 
-example usage generates a new TPM unrestricted RSA key and sign,verify some data.
+##### PasswordPolicy
 
+If the key requires a password, initialize a `NewPasswordSession`
 
-You can create the persistent handles using go-tpm or using  `tpm2_tools` and make it persistent, 
+```golang
+	se, err := saltpm.NewPasswordSession(rwr, []byte(*keyPass))
 
-First install latest [tpm2_tools](https://tpm2-tools.readthedocs.io/en/latest/INSTALL/)
-
-```bash
-cd example/
-
-## if you want to use a software TPM, 
-# rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
-# swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
-
-## then specify "127.0.0.1:2321"  as the TPM device path in the examples
-## and for tpm2_tools, export the following var
-# export TPM2TOOLS_TCTI="swtpm:port=2321"
-
-## note if you want, the primary can be the "H2" profile from https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html#name-parent
-# printf '\x00\x00' > unique.dat
-# tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
-
-
-## RSA - no password
-
-	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
-	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-	tpm2_evictcontrol -C o -c key.ctx 0x81008001
-
-go run sign_verify_tpm/rsassa/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008001
-
-
-### RSA - no password with PEM key file
-
-	printf '\x00\x00' > unique.dat
-	tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
-
-	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx  --format=pem --output=rsapss_public.pem
-	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-	tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o key.pem
-
-go run sign_verify_tpm/keyfile/main.go --tpm-path="127.0.0.1:2321" -pemFile /tmp/key.pem
-
-## rsa-pss
-
-	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx
-	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-	tpm2_evictcontrol -C o -c key.ctx 0x81008004
-
-go run sign_verify_tpm/rsapss/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008004
-
-## ecc
-
-	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256 -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx  --format=pem --output=ecc_public.pem
-	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-	tpm2_evictcontrol -C o -c key.ctx 0x81008005    
-
-go run sign_verify_tpm/ecc/main.go --tpm-path="127.0.0.1:2321" --handle 0x81008005
-
-## for policyPCR
-
-	tpm2_pcrread sha256:23
-	tpm2_startauthsession -S session.dat
-	tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
-	tpm2_flushcontext session.dat
-	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx  -L policy.dat
-	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-	tpm2_evictcontrol -C o -c key.ctx 0x81008006
-
-## for policyPassword
-
-	tpm2_createprimary -C o  -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
-	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx 
-	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx 
-	tpm2_evictcontrol -C o -c key.ctx 0x81008007
-    
-## ===== 
-
-tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-
-cd example/
-
-## RSA-SSA managed externally
-go run sign_verify_tpm/rsassa/main.go --handle=0x81008001 --tpm-path="127.0.0.1:2321"
-
-## RSA with PEM KeyFile
-go run sign_verify_tpm/keyfile/main.go --pemFile=/path/to/key.pem --tpm-path="127.0.0.1:2321"
-
-## RSA-PSS
-go run sign_verify_tpm/rsapss/main.go --handle=0x81008004 --tpm-path="127.0.0.1:2321"
-
-## ECC
-go run sign_verify_tpm/ecc/main.go --handle=0x81008005 --tpm-path="127.0.0.1:2321"
-
-## RSA with pcr policy
-go run sign_verify_tpm/policy_pcr/main.go --handle=0x81008006 --tpm-path="127.0.0.1:2321"
-
-## RSA with password policy
-go run sign_verify_tpm/policy_password/main.go --handle=0x81008007 --tpm-path="127.0.0.1:2321"
+	rr, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+		TpmDevice:   rwc,
+		Handle:      tpm2.TPMHandle(*handle),
+		AuthSession: se,
+	})
 ```
+
+##### PCRPolicy
+
+If the key requires a password, initialize a `NewPCRSession`
+
+```golang
+	se, err := saltpm.NewPCRSession(rwr, []tpm2.TPMSPCRSelection{
+		{
+			Hash:      tpm2.TPMAlgSHA256,
+			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(*pcr)),
+		},
+	})
+
+	rr, err := saltpm.NewTPMCrypto(&saltpm.TPM{
+		TpmDevice:   rwc,
+		Handle:      tpm2.TPMHandle(*handle),
+		AuthSession: se,
+	})
+
+```
+
+##### CustomPolicy
 
 Note, you can define your own policy for import too...just implement the "session" interface from the signer:
 
