@@ -302,10 +302,11 @@ type Session interface {
 type PCRSession struct {
 	rwr transport.TPM
 	sel []tpm2.TPMSPCRSelection
+	_   Session
 }
 
 func NewPCRSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection) (PCRSession, error) {
-	return PCRSession{rwr, sel}, nil
+	return PCRSession{rwr, sel, nil}, nil
 }
 
 func (p PCRSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
@@ -329,13 +330,112 @@ func (p PCRSession) GetSession() (auth tpm2.Session, closer func() error, err er
 type PasswordSession struct {
 	rwr      transport.TPM
 	password []byte
+	_        Session
 }
 
 func NewPasswordSession(rwr transport.TPM, password []byte) (PasswordSession, error) {
-	return PasswordSession{rwr, password}, nil
+	return PasswordSession{rwr, password, nil}, nil
 }
 
 func (p PasswordSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
 	c := func() error { return nil }
 	return tpm2.PasswordAuth(p.password), c, nil
+}
+
+type MyPCRAndDuplicateSelectSession struct {
+	rwr      transport.TPM
+	sel      []tpm2.TPMSPCRSelection
+	password []byte
+	ekName   tpm2.TPM2BName
+	_        Session
+}
+
+func NewPCRAndDuplicateSelectSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection, password []byte, ekName tpm2.TPM2BName) (MyPCRAndDuplicateSelectSession, error) {
+	return MyPCRAndDuplicateSelectSession{rwr, sel, password, ekName, nil}, nil
+}
+
+func (p MyPCRAndDuplicateSelectSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
+
+	// var options []tpm2.AuthOption
+	// options = append(options, tpm2.Auth(p.password))
+
+	pcr_sess, pcr_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: pcr_sess.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: p.sel,
+		},
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pcrpgd, err := tpm2.PolicyGetDigest{
+		PolicySession: pcr_sess.Handle(),
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = pcr_cleanup()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// create another real session with the PolicyDuplicationSelect and remember to specify the EK
+	// as the "new parent"
+	dupselect_sess, dupselect_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = tpm2.PolicyDuplicationSelect{
+		PolicySession: dupselect_sess.Handle(),
+		NewParentName: p.ekName,
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// calculate the digest
+	dupselpgd, err := tpm2.PolicyGetDigest{
+		PolicySession: dupselect_sess.Handle(),
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = dupselect_cleanup()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// now create an OR session with the two above policies above
+	or_sess, or_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+	if err != nil {
+		return nil, nil, err
+	}
+	//defer or_cleanup()
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: or_sess.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: p.sel,
+		},
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = tpm2.PolicyOr{
+		PolicySession: or_sess.Handle(),
+		PHashList:     tpm2.TPMLDigest{Digests: []tpm2.TPM2BDigest{pcrpgd.PolicyDigest, dupselpgd.PolicyDigest}},
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return or_sess, or_cleanup, nil
 }
