@@ -23,6 +23,15 @@ see the [example/](example/) folder for more information.
 
 Initialize a signer and directly use `.sign()` as shown in this below and in the samples
 
+
+```golang
+require (
+	github.com/salrashid123/signer v0.9.1
+)
+```
+
+then
+
 ```golang
 import (
 	saltpm "github.com/salrashid123/signer/tpm"
@@ -49,6 +58,9 @@ import (
 ```
 
 * [https://pkg.go.dev/github.com/salrashid123/signer/tpm](https://pkg.go.dev/github.com/salrashid123/signer/tpm)
+
+
+Please import as `go get github.com/salrashid123/signer@v0.9.1`  (or whatever is the release version)
 
 ---
 

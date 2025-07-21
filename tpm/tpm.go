@@ -342,7 +342,93 @@ func (p PasswordSession) GetSession() (auth tpm2.Session, closer func() error, e
 	return tpm2.PasswordAuth(p.password), c, nil
 }
 
-type MyPCRAndDuplicateSelectSession struct {
+type PolicyAuthValueDuplicateSelectSession struct {
+	rwr      transport.TPM
+	password []byte
+	ekName   tpm2.TPM2BName
+	_        Session
+}
+
+func NewPolicyAuthValueAndDuplicateSelectSession(rwr transport.TPM, password []byte, ekName tpm2.TPM2BName) (PolicyAuthValueDuplicateSelectSession, error) {
+	return PolicyAuthValueDuplicateSelectSession{rwr, password, ekName, nil}, nil
+}
+
+func (p PolicyAuthValueDuplicateSelectSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
+
+	pa_sess, pa_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+	if err != nil {
+		return nil, nil, err
+	}
+	//defer pa_cleanup()
+
+	_, err = tpm2.PolicyAuthValue{
+		PolicySession: pa_sess.Handle(),
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	papgd, err := tpm2.PolicyGetDigest{
+		PolicySession: pa_sess.Handle(),
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = pa_cleanup()
+	if err != nil {
+		return nil, nil, err
+	}
+	// as the "new parent"
+	dupselect_sess, dupselect_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+	if err != nil {
+		return nil, nil, err
+	}
+	//defer dupselect_cleanup()
+
+	_, err = tpm2.PolicyDuplicationSelect{
+		PolicySession: dupselect_sess.Handle(),
+		NewParentName: tpm2.TPM2BName(p.ekName),
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// calculate the digest
+	dupselpgd, err := tpm2.PolicyGetDigest{
+		PolicySession: dupselect_sess.Handle(),
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = dupselect_cleanup()
+	if err != nil {
+		return nil, nil, err
+	}
+	// now create an OR session with the two above policies above
+	or_sess, or_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(p.password))}...)
+	if err != nil {
+		return nil, nil, err
+	}
+	//defer or_cleanup()
+
+	_, err = tpm2.PolicyAuthValue{
+		PolicySession: or_sess.Handle(),
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+	_, err = tpm2.PolicyOr{
+		PolicySession: or_sess.Handle(),
+		PHashList:     tpm2.TPMLDigest{Digests: []tpm2.TPM2BDigest{papgd.PolicyDigest, dupselpgd.PolicyDigest}},
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return or_sess, or_cleanup, nil
+}
+
+type PCRAndDuplicateSelectSession struct {
 	rwr      transport.TPM
 	sel      []tpm2.TPMSPCRSelection
 	password []byte
@@ -350,14 +436,11 @@ type MyPCRAndDuplicateSelectSession struct {
 	_        Session
 }
 
-func NewPCRAndDuplicateSelectSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection, password []byte, ekName tpm2.TPM2BName) (MyPCRAndDuplicateSelectSession, error) {
-	return MyPCRAndDuplicateSelectSession{rwr, sel, password, ekName, nil}, nil
+func NewPCRAndDuplicateSelectSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection, password []byte, ekName tpm2.TPM2BName) (PCRAndDuplicateSelectSession, error) {
+	return PCRAndDuplicateSelectSession{rwr, sel, password, ekName, nil}, nil
 }
 
-func (p MyPCRAndDuplicateSelectSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
-
-	// var options []tpm2.AuthOption
-	// options = append(options, tpm2.Auth(p.password))
+func (p PCRAndDuplicateSelectSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
 
 	pcr_sess, pcr_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
 	if err != nil {
