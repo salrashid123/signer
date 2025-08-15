@@ -761,7 +761,7 @@ func TestTPMSignPCRPolicy(t *testing.T) {
 			Hash:      tpm2.TPMAlgSHA256,
 			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
 		},
-	}, tpm2.TPM2BDigest{Buffer: nil}, primaryKey.ObjectHandle)
+	})
 	require.NoError(t, err)
 
 	conf := TPM{
@@ -902,7 +902,7 @@ func TestTPMSignPolicyFail(t *testing.T) {
 			Hash:      tpm2.TPMAlgSHA256,
 			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(pcr)),
 		},
-	}, tpm2.TPM2BDigest{Buffer: nil}, primaryKey.ObjectHandle)
+	})
 	require.NoError(t, err)
 	conf := TPM{
 		TpmDevice:   tpmDevice,

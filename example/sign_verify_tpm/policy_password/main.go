@@ -75,21 +75,6 @@ func main() {
 
 	rwr := transport.FromReadWriter(rwc)
 
-	primaryKey, err := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHOwner,
-		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("can't create primary %v", err)
-	}
-
-	defer func() {
-		flushContextCmd := tpm2.FlushContext{
-			FlushHandle: primaryKey.ObjectHandle,
-		}
-		_, _ = flushContextCmd.Execute(rwr)
-	}()
-
 	stringToSign := "foo"
 	fmt.Printf("Data to sign %s\n", stringToSign)
 
@@ -99,7 +84,7 @@ func main() {
 	h.Write(b)
 	digest := h.Sum(nil)
 
-	se, err := saltpm.NewPasswordSession(rwr, []byte(*keyPass), primaryKey.ObjectHandle)
+	se, err := saltpm.NewPasswordSession(rwr, []byte(*keyPass))
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

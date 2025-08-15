@@ -97,23 +97,23 @@ func main() {
 	h.Write(b)
 	digest := h.Sum(nil)
 
-	primaryKey, err := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHEndorsement,
-		InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
-	}.Execute(rwr)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
+	// primaryKey, err := tpm2.CreatePrimary{
+	// 	PrimaryHandle: tpm2.TPMRHEndorsement,
+	// 	InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Println(err)
+	// 	os.Exit(1)
+	// }
 
-	defer func() {
-		flushContextCmd := tpm2.FlushContext{
-			FlushHandle: primaryKey.ObjectHandle,
-		}
-		_, _ = flushContextCmd.Execute(rwr)
-	}()
+	// defer func() {
+	// 	flushContextCmd := tpm2.FlushContext{
+	// 		FlushHandle: primaryKey.ObjectHandle,
+	// 	}
+	// 	_, _ = flushContextCmd.Execute(rwr)
+	// }()
 
-	se, err := saltpm.NewPasswordSession(rwr, []byte("bar"), primaryKey.ObjectHandle)
+	se, err := saltpm.NewPasswordSession(rwr, []byte("bar"))
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
