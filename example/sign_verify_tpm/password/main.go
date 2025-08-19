@@ -27,9 +27,23 @@ const (
 	defaultPassword = ""
 )
 
+/*
+
+## RSA - password
+	tpm2_createprimary -C o -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008006
+	tpm2_flushcontext  -t
+
+go run sign_verify_tpm/policy_password/main.go --handle=0x81008006
+*/
+
 var (
 	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
-	handle  = flag.Uint("handle", 0x81008008, "rsa Handle value")
+	handle  = flag.Uint("handle", 0x81008006, "rsa Handle value")
 	keyPass = flag.String("keyPass", "testpwd", "KeyPassword")
 )
 
@@ -86,7 +100,7 @@ func main() {
 	h.Write(b)
 	digest := h.Sum(nil)
 
-	se, err := saltpm.NewPolicyPasswordSession(rwr, []byte(*keyPass), encryptionKey.ObjectHandle)
+	se, err := saltpm.NewPasswordAuthSession(rwr, []byte(*keyPass), encryptionKey.ObjectHandle)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

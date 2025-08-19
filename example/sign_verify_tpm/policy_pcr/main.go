@@ -83,6 +83,22 @@ func main() {
 
 	rwr := transport.FromReadWriter(rwc)
 
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
+	}.Execute(rwr)
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+
 	stringToSign := "foo"
 	fmt.Printf("Data to sign %s\n", stringToSign)
 
@@ -97,7 +113,7 @@ func main() {
 			Hash:      tpm2.TPMAlgSHA256,
 			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(*pcr)),
 		},
-	})
+	}, tpm2.TPM2BDigest{}, primaryKey.ObjectHandle)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

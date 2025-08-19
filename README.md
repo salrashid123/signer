@@ -6,11 +6,6 @@ Basically, you will get a [crypto.Signer](https://pkg.go.dev/crypto#Signer) inte
 
 Use the signer to create a TLS session, sign CA/CSRs, or just sign anything.
 
-For example, you can use this to sign data or to generate certificates/csr or for mTLS.
-
-- `util/certgen/`:  Library that generates a self-signed x509 certificate for the KMS and TPM based signers above
-- `util/csrgen/`:  Library that generates a CSR using the key in KMS or TPM 
-
 see the [example/](example/) folder for more information.
 
 ---
@@ -149,7 +144,7 @@ go run sign_verify_tpm/ecc/main.go --tpm-path="127.0.0.1:2321" --handle 0x810080
 
 go run sign_verify_tpm/policy_pcr/main.go --handle=0x81008006 --tpm-path="127.0.0.1:2321"
 
-## for policyPassword
+## for password
 
 	tpm2_createprimary -C o  -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
 	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx 
@@ -157,7 +152,23 @@ go run sign_verify_tpm/policy_pcr/main.go --handle=0x81008006 --tpm-path="127.0.
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx 
 	tpm2_evictcontrol -C o -c key.ctx 0x81008007
 
-go run sign_verify_tpm/policy_password/main.go --handle=0x81008007 --tpm-path="127.0.0.1:2321"
+go run sign_verify_tpm/password/main.go --handle=0x81008007 --tpm-path="127.0.0.1:2321"
+
+
+## for policyassword
+
+	tpm2_createprimary -C o  -G rsa2048:aes128cfb -g sha256  -c primary.ctx -a 'restricted|decrypt|fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda'
+
+	tpm2_startauthsession -S session.dat
+	tpm2_policypassword -S session.dat -L policy.dat
+	tpm2_flushcontext session.dat
+
+	tpm2_create -G rsa2048:rsassa:null -p testpwd -g sha256 -u key.pub -r key.priv -C primary.ctx  -L policy.dat
+	tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx 
+	tpm2_evictcontrol -C o -c key.ctx 0x81008008
+
+go run sign_verify_tpm/password/main.go --handle=0x81008007 --tpm-path="127.0.0.1:2321"
 
 ```
 
@@ -237,12 +248,12 @@ or real random:
 If the key is setup with an AuthPolicy (eg, a policy that requires a passphrase or a predefined PCR values to exist), you can specify those in code or define your own
 
 
-##### PasswordPolicy
+##### PasswordAuth
 
-If the key requires a password, initialize a `NewPasswordSession`
+If the key requires a password, initialize a `NewPasswordAuthSession`
 
 ```golang
-	se, err := saltpm.NewPasswordSession(rwr, []byte(*keyPass))
+	se, err := saltpm.NewPasswordAuthSession(rwr, []byte(*keyPass), 0)
 
 	rr, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice:   rwc,
@@ -259,9 +270,9 @@ If the key requires a password, initialize a `NewPCRSession`
 	se, err := saltpm.NewPCRSession(rwr, []tpm2.TPMSPCRSelection{
 		{
 			Hash:      tpm2.TPMAlgSHA256,
-			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(*pcr)),
+			PCRSelect: tpm2.PCClientCompatible.PCRs(uint(23)),
 		},
-	})
+	}, tpm2.TPM2BDigest{}, 0)
 
 	rr, err := saltpm.NewTPMCrypto(&saltpm.TPM{
 		TpmDevice:   rwc,
@@ -311,14 +322,14 @@ func (p MyPCRAndPolicyAuthValueSession) GetSession() (auth tpm2.Session, closer 
 		},
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, closer, err
 	}
 
 	_, err = tpm2.PolicyAuthValue{
 		PolicySession: sess.Handle(),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, closer, err
 	}
 
 	return sess, closer, nil

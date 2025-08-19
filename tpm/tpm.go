@@ -129,7 +129,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 
 	rwr := transport.FromReadWriter(t.TpmDevice)
 
-	var sess tpm2.Session
+	var sess []tpm2.Session
 
 	if t.EncryptionHandle != 0 {
 		encryptionPub, err := tpm2.ReadPublic{
@@ -142,9 +142,9 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 		if err != nil {
 			return nil, err
 		}
-		sess = tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn), tpm2.Salted(t.EncryptionHandle, *ePubName))
+		sess = append(sess, tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn), tpm2.Salted(t.EncryptionHandle, *ePubName)))
 	} else {
-		sess = tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn))
+		sess = append(sess, tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn)))
 	}
 
 	var algid tpm2.TPMIAlgHash
@@ -162,7 +162,6 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			return nil, fmt.Errorf("signer: unknown hash function %v", opts.HashFunc())
 		}
 	}
-
 	var se tpm2.Session
 	if t.AuthSession != nil {
 		var err error
@@ -172,6 +171,9 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			return nil, fmt.Errorf("signer: error getting session %s", err)
 		}
 		defer closer()
+		if se.IsDecryption() {
+			sess = nil
+		}
 	} else {
 		se = tpm2.PasswordAuth(nil)
 	}
@@ -202,23 +204,24 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			Validation: tpm2.TPMTTKHashCheck{
 				Tag: tpm2.TPMSTHashCheck,
 			},
-		}.Execute(rwr, sess)
+		}.Execute(rwr, sess...)
 		if err != nil {
 			return nil, fmt.Errorf("signer: can't Sign: %v", err)
 		}
 
 		var rsig *tpm2.TPMSSignatureRSA
-		if rspSign.Signature.SigAlg == tpm2.TPMAlgRSASSA {
+		switch rspSign.Signature.SigAlg {
+		case tpm2.TPMAlgRSASSA:
 			rsig, err = rspSign.Signature.Signature.RSASSA()
 			if err != nil {
 				return nil, fmt.Errorf("signer: error getting rsa ssa signature: %v", err)
 			}
-		} else if rspSign.Signature.SigAlg == tpm2.TPMAlgRSAPSS {
+		case tpm2.TPMAlgRSAPSS:
 			rsig, err = rspSign.Signature.Signature.RSAPSS()
 			if err != nil {
 				return nil, fmt.Errorf("signer: error getting rsa pss signature: %v", err)
 			}
-		} else {
+		default:
 			return nil, fmt.Errorf("signer: unsupported signature algorithm't Sign: %v", err)
 		}
 
@@ -247,7 +250,7 @@ func (t TPM) Sign(rr io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 			Validation: tpm2.TPMTTKHashCheck{
 				Tag: tpm2.TPMSTHashCheck,
 			},
-		}.Execute(rwr, sess)
+		}.Execute(rwr, sess...)
 		if err != nil {
 			return nil, fmt.Errorf("tpmjwt: can't Sign: %v", err)
 		}
@@ -300,97 +303,217 @@ type Session interface {
 
 // for pcr sessions
 type PCRSession struct {
-	rwr transport.TPM
-	sel []tpm2.TPMSPCRSelection
-	_   Session
+	rwr              transport.TPM
+	sel              []tpm2.TPMSPCRSelection
+	digest           tpm2.TPM2BDigest
+	encryptionHandle tpm2.TPMHandle
 }
 
-func NewPCRSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection) (PCRSession, error) {
-	return PCRSession{rwr, sel, nil}, nil
+var _ Session = (*PCRSession)(nil)
+
+// Sets up a PCR session.  THe digest parameter signals what PCR digest to expect explicitly.
+// Normally, just setting the pcr bank numbers (i.e tpm2.TPMSPCRSelection) will enforce pcr compliance
+//
+//	useing the original PCR values the key was bound to
+//
+// If you specify the pcrselection and digest, the digest value you specify is checked explictly vs implictly.
+//
+//	The digest value lets you 'see' the digest the key is bound to upfront.
+//	if the digest is incorrect, you'll see
+//	  "tpmjwt: error getting session TPM_RC_VALUE (parameter 1): value is out of range or is not correct for the context"
+func NewPCRSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection, digest tpm2.TPM2BDigest, encryptionHandle tpm2.TPMHandle) (PCRSession, error) {
+	return PCRSession{rwr, sel, digest, encryptionHandle}, nil
 }
 
 func (p PCRSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
-	sess, closer, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
-	if err != nil {
-		return nil, nil, err
+
+	var ePubName *tpm2.TPMTPublic
+	if p.encryptionHandle != 0 {
+		encryptionPub, err := tpm2.ReadPublic{
+			ObjectHandle: p.encryptionHandle,
+		}.Execute(p.rwr)
+		if err != nil {
+			return nil, nil, err
+		}
+		ePubName, err = encryptionPub.OutPublic.Contents()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
+
+	var pcr_sess tpm2.Session
+	var pcr_cleanup func() error
+
+	if p.encryptionHandle != 0 {
+		pcr_sess, pcr_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn), tpm2.Salted(p.encryptionHandle, *ePubName))
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		pcr_sess, pcr_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	_, err = tpm2.PolicyPCR{
-		PolicySession: sess.Handle(),
+		PolicySession: pcr_sess.Handle(),
+		PcrDigest:     p.digest,
 		Pcrs: tpm2.TPMLPCRSelection{
 			PCRSelections: p.sel,
 		},
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, pcr_cleanup, err
 	}
-	return sess, closer, nil
+
+	return pcr_sess, pcr_cleanup, nil
 }
 
 // for password sessions
-type PasswordSession struct {
-	rwr      transport.TPM
-	password []byte
-	_        Session
+type PasswordAuthSession struct {
+	rwr              transport.TPM
+	password         []byte
+	encryptionHandle tpm2.TPMHandle
 }
 
-func NewPasswordSession(rwr transport.TPM, password []byte) (PasswordSession, error) {
-	return PasswordSession{rwr, password, nil}, nil
+var _ Session = (*PasswordAuthSession)(nil)
+
+func NewPasswordAuthSession(rwr transport.TPM, password []byte, encryptionHandle tpm2.TPMHandle) (PasswordAuthSession, error) {
+	return PasswordAuthSession{rwr, password, encryptionHandle}, nil
 }
 
-func (p PasswordSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
+func (p PasswordAuthSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
 	c := func() error { return nil }
 	return tpm2.PasswordAuth(p.password), c, nil
 }
 
-type PolicyAuthValueDuplicateSelectSession struct {
-	rwr      transport.TPM
-	password []byte
-	ekName   tpm2.TPM2BName
-	_        Session
+// for password sessions
+type PolicyPasswordSession struct {
+	rwr              transport.TPM
+	password         []byte
+	encryptionHandle tpm2.TPMHandle
 }
 
-func NewPolicyAuthValueAndDuplicateSelectSession(rwr transport.TPM, password []byte, ekName tpm2.TPM2BName) (PolicyAuthValueDuplicateSelectSession, error) {
-	return PolicyAuthValueDuplicateSelectSession{rwr, password, ekName, nil}, nil
+var _ Session = (*PolicyPasswordSession)(nil)
+
+func NewPolicyPasswordSession(rwr transport.TPM, password []byte, encryptionHandle tpm2.TPMHandle) (PolicyPasswordSession, error) {
+	return PolicyPasswordSession{rwr, password, encryptionHandle}, nil
+}
+
+func (p PolicyPasswordSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
+
+	var ePubName *tpm2.TPMTPublic
+	if p.encryptionHandle != 0 {
+		encryptionPub, err := tpm2.ReadPublic{
+			ObjectHandle: p.encryptionHandle,
+		}.Execute(p.rwr)
+		if err != nil {
+			return nil, nil, err
+		}
+		ePubName, err = encryptionPub.OutPublic.Contents()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	// tpm2.Salted(p.encryptionHandle, *ePubName)
+	sess, c, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(p.password)), tpm2.AESEncryption(128, tpm2.EncryptIn), tpm2.Salted(p.encryptionHandle, *ePubName)}...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = tpm2.PolicyAuthValue{
+		PolicySession: sess.Handle(),
+	}.Execute(p.rwr)
+	if err != nil {
+		return nil, c, err
+	}
+
+	return sess, c, nil
+}
+
+type PolicyAuthValueDuplicateSelectSession struct {
+	rwr              transport.TPM
+	password         []byte
+	dupEKName        tpm2.TPM2BName
+	encryptionHandle tpm2.TPMHandle
+}
+
+func NewPolicyAuthValueAndDuplicateSelectSession(rwr transport.TPM, password []byte, dupEKName tpm2.TPM2BName, encryptionHandle tpm2.TPMHandle) (PolicyAuthValueDuplicateSelectSession, error) {
+	return PolicyAuthValueDuplicateSelectSession{rwr, password, dupEKName, encryptionHandle}, nil
 }
 
 func (p PolicyAuthValueDuplicateSelectSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
 
-	pa_sess, pa_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
-	if err != nil {
-		return nil, nil, err
+	var ePubName *tpm2.TPMTPublic
+	if p.encryptionHandle != 0 {
+		encryptionPub, err := tpm2.ReadPublic{
+			ObjectHandle: p.encryptionHandle,
+		}.Execute(p.rwr)
+		if err != nil {
+			return nil, nil, err
+		}
+		ePubName, err = encryptionPub.OutPublic.Contents()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
-	//defer pa_cleanup()
+
+	var pa_sess tpm2.Session
+	var pa_cleanup func() error
+
+	if p.encryptionHandle != 0 {
+		pa_sess, pa_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptInOut), tpm2.Salted(p.encryptionHandle, *ePubName))
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		pa_sess, pa_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 
 	_, err = tpm2.PolicyAuthValue{
 		PolicySession: pa_sess.Handle(),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, pa_cleanup, err
 	}
 
 	papgd, err := tpm2.PolicyGetDigest{
 		PolicySession: pa_sess.Handle(),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, pa_cleanup, err
 	}
 	err = pa_cleanup()
 	if err != nil {
 		return nil, nil, err
 	}
+
+	var dupselect_sess tpm2.Session
+	var dupselect_cleanup func() error
 	// as the "new parent"
-	dupselect_sess, dupselect_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
-	if err != nil {
-		return nil, nil, err
+
+	if p.encryptionHandle != 0 {
+		dupselect_sess, dupselect_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptInOut), tpm2.Salted(p.encryptionHandle, *ePubName))
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		dupselect_sess, dupselect_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
-	//defer dupselect_cleanup()
 
 	_, err = tpm2.PolicyDuplicationSelect{
 		PolicySession: dupselect_sess.Handle(),
-		NewParentName: tpm2.TPM2BName(p.ekName),
+		NewParentName: tpm2.TPM2BName(p.dupEKName),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, dupselect_cleanup, err
 	}
 
 	// calculate the digest
@@ -398,89 +521,134 @@ func (p PolicyAuthValueDuplicateSelectSession) GetSession() (auth tpm2.Session, 
 		PolicySession: dupselect_sess.Handle(),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, dupselect_cleanup, err
 	}
 	err = dupselect_cleanup()
 	if err != nil {
 		return nil, nil, err
 	}
+
+	var or_sess tpm2.Session
+	var or_cleanup func() error
 	// now create an OR session with the two above policies above
-	or_sess, or_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(p.password))}...)
-	if err != nil {
-		return nil, nil, err
+
+	if p.encryptionHandle != 0 {
+		or_sess, or_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(p.password)), tpm2.Salted(p.encryptionHandle, *ePubName)}...)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		or_sess, or_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(p.password))}...)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
-	//defer or_cleanup()
 
 	_, err = tpm2.PolicyAuthValue{
 		PolicySession: or_sess.Handle(),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, or_cleanup, err
 	}
 	_, err = tpm2.PolicyOr{
 		PolicySession: or_sess.Handle(),
 		PHashList:     tpm2.TPMLDigest{Digests: []tpm2.TPM2BDigest{papgd.PolicyDigest, dupselpgd.PolicyDigest}},
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, or_cleanup, err
 	}
 
 	return or_sess, or_cleanup, nil
 }
 
 type PCRAndDuplicateSelectSession struct {
-	rwr      transport.TPM
-	sel      []tpm2.TPMSPCRSelection
-	password []byte
-	ekName   tpm2.TPM2BName
-	_        Session
+	rwr              transport.TPM
+	sel              []tpm2.TPMSPCRSelection
+	digest           tpm2.TPM2BDigest
+	password         []byte
+	dupEKName        tpm2.TPM2BName
+	encryptionHandle tpm2.TPMHandle
 }
 
-func NewPCRAndDuplicateSelectSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection, password []byte, ekName tpm2.TPM2BName) (PCRAndDuplicateSelectSession, error) {
-	return PCRAndDuplicateSelectSession{rwr, sel, password, ekName, nil}, nil
+func NewPCRAndDuplicateSelectSession(rwr transport.TPM, sel []tpm2.TPMSPCRSelection, digest tpm2.TPM2BDigest, password []byte, dupEKName tpm2.TPM2BName, encryptionHandle tpm2.TPMHandle) (PCRAndDuplicateSelectSession, error) {
+	return PCRAndDuplicateSelectSession{rwr, sel, digest, password, dupEKName, encryptionHandle}, nil
 }
 
 func (p PCRAndDuplicateSelectSession) GetSession() (auth tpm2.Session, closer func() error, err error) {
 
-	pcr_sess, pcr_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
-	if err != nil {
-		return nil, nil, err
+	var ePubName *tpm2.TPMTPublic
+	if p.encryptionHandle != 0 {
+		encryptionPub, err := tpm2.ReadPublic{
+			ObjectHandle: p.encryptionHandle,
+		}.Execute(p.rwr)
+		if err != nil {
+			return nil, nil, err
+		}
+		ePubName, err = encryptionPub.OutPublic.Contents()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	var pcr_sess tpm2.Session
+	var pcr_cleanup func() error
+
+	if p.encryptionHandle != 0 {
+		pcr_sess, pcr_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptInOut), tpm2.Salted(p.encryptionHandle, *ePubName))
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		pcr_sess, pcr_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	_, err = tpm2.PolicyPCR{
 		PolicySession: pcr_sess.Handle(),
+		PcrDigest:     p.digest,
 		Pcrs: tpm2.TPMLPCRSelection{
 			PCRSelections: p.sel,
 		},
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, pcr_cleanup, err
 	}
 
 	pcrpgd, err := tpm2.PolicyGetDigest{
 		PolicySession: pcr_sess.Handle(),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, pcr_cleanup, err
 	}
 	err = pcr_cleanup()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// create another real session with the PolicyDuplicationSelect and remember to specify the EK
+	var dupselect_sess tpm2.Session
+	var dupselect_cleanup func() error
 	// as the "new parent"
-	dupselect_sess, dupselect_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
-	if err != nil {
-		return nil, nil, err
+
+	if p.encryptionHandle != 0 {
+		dupselect_sess, dupselect_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptInOut), tpm2.Salted(p.encryptionHandle, *ePubName))
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		dupselect_sess, dupselect_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	_, err = tpm2.PolicyDuplicationSelect{
 		PolicySession: dupselect_sess.Handle(),
-		NewParentName: p.ekName,
+		NewParentName: tpm2.TPM2BName(p.dupEKName),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, dupselect_cleanup, err
 	}
 
 	// calculate the digest
@@ -488,28 +656,38 @@ func (p PCRAndDuplicateSelectSession) GetSession() (auth tpm2.Session, closer fu
 		PolicySession: dupselect_sess.Handle(),
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, dupselect_cleanup, err
 	}
 	err = dupselect_cleanup()
 	if err != nil {
 		return nil, nil, err
 	}
 
+	var or_sess tpm2.Session
+	var or_cleanup func() error
 	// now create an OR session with the two above policies above
-	or_sess, or_cleanup, err := tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16)
-	if err != nil {
-		return nil, nil, err
+
+	if p.encryptionHandle != 0 {
+		or_sess, or_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(p.password)), tpm2.Salted(p.encryptionHandle, *ePubName)}...)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		or_sess, or_cleanup, err = tpm2.PolicySession(p.rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(p.password))}...)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
-	//defer or_cleanup()
 
 	_, err = tpm2.PolicyPCR{
 		PolicySession: or_sess.Handle(),
+		PcrDigest:     p.digest,
 		Pcrs: tpm2.TPMLPCRSelection{
 			PCRSelections: p.sel,
 		},
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, or_cleanup, err
 	}
 
 	_, err = tpm2.PolicyOr{
@@ -517,7 +695,7 @@ func (p PCRAndDuplicateSelectSession) GetSession() (auth tpm2.Session, closer fu
 		PHashList:     tpm2.TPMLDigest{Digests: []tpm2.TPM2BDigest{pcrpgd.PolicyDigest, dupselpgd.PolicyDigest}},
 	}.Execute(p.rwr)
 	if err != nil {
-		return nil, nil, err
+		return nil, or_cleanup, err
 	}
 
 	return or_sess, or_cleanup, nil
