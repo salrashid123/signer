@@ -21,7 +21,7 @@ Initialize a signer and directly use `.sign()` as shown in this below and in the
 
 ```golang
 require (
-	github.com/salrashid123/signer v0.9.1
+	github.com/salrashid123/signer v0.9.3
 )
 ```
 
@@ -55,7 +55,7 @@ import (
 * [https://pkg.go.dev/github.com/salrashid123/signer/tpm](https://pkg.go.dev/github.com/salrashid123/signer/tpm)
 
 
-Please import as `go get github.com/salrashid123/signer@v0.9.1`  (or whatever is the release version)
+Please import as `go get github.com/salrashid123/signer@v0.9.3`  (or whatever is the release version)
 
 ---
 
