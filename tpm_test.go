@@ -1043,7 +1043,7 @@ func TestTPMPublicCertFile(t *testing.T) {
 		_, _ = flushContextCmd.Execute(rwr)
 	}()
 
-	pubPEMData, err := os.ReadFile("../example/certs/server.crt")
+	pubPEMData, err := os.ReadFile("example/certs/server.crt")
 	require.NoError(t, err)
 
 	block, _ := pem.Decode(pubPEMData)
@@ -1055,7 +1055,7 @@ func TestTPMPublicCertFile(t *testing.T) {
 	conf := TPM{
 		TpmDevice:      tpmDevice,
 		Handle:         rsaKeyResponse.ObjectHandle,
-		PublicCertFile: "../example/certs/server.crt",
+		PublicCertFile: "example/certs/server.crt",
 	}
 
 	tpm, err := NewTPMCrypto(&conf)
@@ -1102,7 +1102,7 @@ func TestTPMX509(t *testing.T) {
 		_, _ = flushContextCmd.Execute(rwr)
 	}()
 
-	pubPEMData, err := os.ReadFile("../example/certs/server.crt")
+	pubPEMData, err := os.ReadFile("example/certs/server.crt")
 	require.NoError(t, err)
 
 	block, _ := pem.Decode(pubPEMData)
